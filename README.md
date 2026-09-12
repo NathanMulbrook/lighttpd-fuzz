@@ -78,9 +78,13 @@ has about 141 OS threads, with up to 94 doing request and fuzzing work.
 Profiles use ports 5601 through 5647.
 
 `build.sh` only compiles and stages profiles; it never starts a server or
-fuzzer. `run.sh` is the campaign supervisor. It launches one isolated lighttpd
-process for each selected configuration and keeps the other processes running
-if one profile exits.
+fuzzer. It refuses to build or stage a selected profile while that profile is
+running, so a build cannot terminate an active campaign. `run.sh` is the
+campaign supervisor. It launches one isolated lighttpd process for each
+selected configuration and holds a per-profile lock for the life of that
+process. It restarts an isolated exit. After five rapid restart attempts, a
+sixth exit is treated as an unrecoverable startup loop; that profile stops
+while the other processes keep running.
 
 Profiles 21, 22, 37, 40, 41, 42, and 44 use one supervised loopback backend fixture. `run.sh`
 starts it automatically before those profiles and stops it after the lighttpd
@@ -254,9 +258,10 @@ The report is written to `logs/symbolReport.md`. `asanProcess.sh` normalizes
 and deduplicates runtime reports into `asanfiltered.log`, including ASan
 internal failures and deadly signals; `run.sh` invokes it once per minute.
 The runner checks its children every five seconds. If one profile crashes, it
-records the exit and keeps the remaining profiles running. A packet-capture
-failure is also reported without stopping the fuzzers. The runner exits when
-no fuzzing profiles remain.
+records the exit and restarts that profile. It appends the new process output
+to the same `logs/errorN` file, with a restart marker between processes. A
+packet-capture failure is also reported without stopping the fuzzers. The
+runner exits when no fuzzing profiles remain.
 
 The integration patch is limited to adding `fuzzer.c` to lighttpd, linking
 libFuzzer's no-main runtime, adding `-F`, forcing single-process foreground

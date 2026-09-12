@@ -29,6 +29,10 @@ for arg in "$@"; do
 done
 
 source "$directory/toolchain/use-llvm.sh"
+if ! command -v flock >/dev/null; then
+    echo "flock is required to keep builds separate from running profiles."
+    exit 1
+fi
 
 PATCH=1
 CONFIG="all"
@@ -176,24 +180,23 @@ config_build() {
     )
 }
 
-stop_instance() {
+active_instance_pid() {
     local build_config="$1"
     local run_dir="$directory/run/run_$build_config"
     local pid_file="$run_dir/lighttpd.pid"
     local binary="$run_dir/sbin/lighttpd"
-    local config="$run_dir/config/lighttpd.conf"
-    [ -f "$pid_file" ] || return 0
+    [ -f "$pid_file" ] || return 1
     local pid actual_exe expected_exe
     pid="$(sed -n '1p' "$pid_file")"
     case "$pid" in
     '' | *[!0-9]*)
         rm -f "$pid_file"
-        return 0
+        return 1
         ;;
     esac
     if ! kill -0 "$pid" 2>/dev/null; then
         rm -f "$pid_file"
-        return 0
+        return 1
     fi
     actual_exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
     actual_exe="${actual_exe% (deleted)}"
@@ -201,28 +204,26 @@ stop_instance() {
     if [ "$actual_exe" != "$expected_exe" ]; then
         echo "Ignoring stale PID file for config $build_config: $pid"
         rm -f "$pid_file"
-        return 0
-    fi
-
-    if ! tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | grep -Fqx -- "$config"; then
-        echo "Ignoring PID file for a different lighttpd invocation: $pid_file"
-        rm -f "$pid_file"
-        return 0
-    fi
-
-    local signal=TERM
-    if tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | grep -Fqx -- '-F'; then
-        signal=USR2
-    fi
-    kill -"$signal" "$pid" 2>/dev/null || true
-    for _ in {1..100}; do
-        kill -0 "$pid" 2>/dev/null || break
-        sleep 0.1
-    done
-    if kill -0 "$pid" 2>/dev/null; then
-        echo "Running lighttpd process $pid did not stop."
         return 1
     fi
+
+    printf '%s\n' "$pid"
+}
+
+refuse_active_instances() {
+    local build_config pid
+    local active=()
+    local configs=("$@")
+    for build_config in "${configs[@]}"; do
+        if pid="$(active_instance_pid "$build_config")"; then
+            active+=("$build_config:$pid")
+        fi
+    done
+    [ "${#active[@]}" -eq 0 ] && return 0
+
+    echo "Refusing to build or stage active lighttpd profiles: ${active[*]}" >&2
+    echo "Stop their run.sh supervisor first; no running process was signalled." >&2
+    return 1
 }
 
 render_template() {
@@ -296,10 +297,20 @@ build_software() {
     local run_dir="$directory/run/run_$build_config"
     local build_dir="$directory/build/build_$build_config"
     local temp_source_dir="$directory/build/src_$build_config"
+    local lock_file="$directory/run/.locks/config-$build_config.lock"
+    local config_lock_fd
 
-    stop_instance "$build_config"
+    mkdir -p "$directory/run/.locks"
+    exec {config_lock_fd}>"$lock_file"
+    if ! flock -n "$config_lock_fd"; then
+        echo "Configuration $build_config is owned by another build or run.sh supervisor; refusing to modify it." >&2
+        exec {config_lock_fd}>&-
+        return 1
+    fi
+
     if [ "$REBUILD_DIRECTORY" -eq 1 ]; then
         stage_runtime "$build_config"
+        exec {config_lock_fd}>&-
         return
     fi
 
@@ -326,9 +337,16 @@ build_software() {
     if [ "$BUILD_DIRECTORY" -eq 1 ]; then
         stage_runtime "$build_config"
     fi
+    exec {config_lock_fd}>&-
 }
 
 mkdir -p "$directory/logs"
+if [ "$CONFIG" = "a" ] || [ "$CONFIG" = "all" ]; then
+    refuse_active_instances "${CONFIG_IDS[@]}"
+else
+    refuse_active_instances "$CONFIG"
+fi
+
 if [ "$CONFIG" = "a" ] || [ "$CONFIG" = "all" ]; then
     child_args=()
     if [ "$REBUILD_DIRECTORY" -eq 1 ]; then

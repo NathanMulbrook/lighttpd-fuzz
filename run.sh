@@ -7,6 +7,10 @@ if ! command -v setsid >/dev/null; then
     echo "setsid is required to isolate fuzzing children from terminal signals."
     exit 1
 fi
+if ! command -v flock >/dev/null; then
+    echo "flock is required to keep running profiles separate from builds."
+    exit 1
+fi
 
 FUZZ="-F"
 CONFIG="all"
@@ -24,8 +28,12 @@ backend_pids=()
 backend_ready_file=""
 declare -A fuzzer_configs=()
 declare -A server_pid_files=()
+declare -A fuzzer_started_at=()
+declare -A rapid_restart_counts=()
+declare -A config_lock_fds=()
 CONFIG_IDS=()
 selected_configs=()
+last_fuzzer_pid=""
 
 discover_configs() {
     local config_path filename config_id config_number expected
@@ -256,6 +264,31 @@ archive_previous_error_log() {
     mv "$error_log" "$error_archive_dir/error$build_config"
 }
 
+acquire_config_lock() {
+    local build_config="$1"
+    local lock_file="$directory/run/.locks/config-$build_config.lock"
+    local lock_fd
+    [ -n "${config_lock_fds[$build_config]:-}" ] && return 0
+
+    mkdir -p "$directory/run/.locks"
+    exec {lock_fd}>"$lock_file"
+    if ! flock -n "$lock_fd"; then
+        echo "Configuration $build_config is owned by another build or run.sh supervisor."
+        exec {lock_fd}>&-
+        return 1
+    fi
+    config_lock_fds["$build_config"]="$lock_fd"
+}
+
+release_config_lock() {
+    local build_config="$1"
+    local lock_fd="${config_lock_fds[$build_config]:-}"
+    [ -n "$lock_fd" ] || return 0
+    flock -u "$lock_fd" 2>/dev/null || true
+    exec {lock_fd}>&-
+    unset "config_lock_fds[$build_config]"
+}
+
 selected_configs_require_backend() {
     local build_config variant_config
     for build_config in "${selected_configs[@]}"; do
@@ -314,6 +347,7 @@ start_backend_responder() {
 
 run_fuzzer() {
     local build_config="$1"
+    local launch_kind="${2:-initial}"
     valid_config "$build_config" || {
         echo "Run configuration '$build_config' is not available."
         echo "Available configurations: ${CONFIG_IDS[*]}"
@@ -337,8 +371,15 @@ run_fuzzer() {
         echo "Run ./build.sh --config=$build_config --directory first."
         return 1
     fi
+    acquire_config_lock "$build_config" || return 1
     stop_previous "$pid_file" "$binary" "$config" || return 1
-    archive_previous_error_log "$build_config" || return 1
+    if [ "$launch_kind" = "initial" ]; then
+        archive_previous_error_log "$build_config" || return 1
+    elif [ "$LOG_OUTPUT" -eq 1 ]; then
+        printf '\n--- supervisor restarting config %s at %s ---\n' \
+            "$build_config" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            >>"$directory/logs/error$build_config"
+    fi
 
     local profile_file="$config_profile_dir/default-%m-%p%c.profraw"
     # UBSan reports recoverable language errors and keeps fuzzing.  ASan stops
@@ -366,14 +407,20 @@ run_fuzzer() {
 
     echo "Starting config $build_config on 127.0.0.1:$port"
     if [ "$LOG_OUTPUT" -eq 1 ]; then
-        setsid env "${run_environment[@]}" "${command[@]}" >"$directory/logs/error$build_config" 2>&1 &
+        if [ "$launch_kind" = "initial" ]; then
+            setsid env "${run_environment[@]}" "${command[@]}" >"$directory/logs/error$build_config" 2>&1 &
+        else
+            setsid env "${run_environment[@]}" "${command[@]}" >>"$directory/logs/error$build_config" 2>&1 &
+        fi
     else
         setsid env "${run_environment[@]}" "${command[@]}" &
     fi
     local pid="$!"
+    last_fuzzer_pid="$pid"
     fuzzer_pids+=("$pid")
     fuzzer_configs["$pid"]="$build_config"
     server_pid_files["$pid"]="$pid_file"
+    fuzzer_started_at["$pid"]="$(date +%s)"
 }
 
 backend_enabled=0
@@ -425,13 +472,36 @@ while sleep 5; do
             status="$?"
             config_id="${fuzzer_configs[$pid]}"
             pid_file="${server_pid_files[$pid]}"
+            started_at="${fuzzer_started_at[$pid]}"
             if [ -f "$pid_file" ] && [ "$(sed -n '1p' "$pid_file")" = "$pid" ]; then
                 rm -f "$pid_file"
             fi
             unset "fuzzer_pids[$index]"
             unset "fuzzer_configs[$pid]"
             unset "server_pid_files[$pid]"
-            echo "Config $config_id child $pid exited with status $status; ${#fuzzer_pids[@]} fuzzing profiles remain."
+            unset "fuzzer_started_at[$pid]"
+
+            now="$(date +%s)"
+            runtime="$((now - started_at))"
+            restart_count="${rapid_restart_counts[$config_id]:-0}"
+            if [ "$runtime" -ge 60 ]; then
+                restart_count=0
+            fi
+            restart_count="$((restart_count + 1))"
+            rapid_restart_counts["$config_id"]="$restart_count"
+
+            if [ "$restart_count" -le 5 ]; then
+                echo "Config $config_id child $pid exited with status $status after ${runtime}s; restarting (rapid attempt $restart_count/5)."
+                if run_fuzzer "$config_id" restart; then
+                    echo "Config $config_id restarted as child $last_fuzzer_pid."
+                else
+                    echo "Config $config_id could not be restarted; ${#fuzzer_pids[@]} fuzzing profiles remain."
+                    release_config_lock "$config_id"
+                fi
+            else
+                echo "Config $config_id stopped after 5 rapid restart attempts; ${#fuzzer_pids[@]} fuzzing profiles remain."
+                release_config_lock "$config_id"
+            fi
         fi
     done
     for index in "${!capture_pids[@]}"; do

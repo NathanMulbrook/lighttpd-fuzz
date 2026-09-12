@@ -3,7 +3,15 @@ set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 test_dir="$(mktemp -d)"
-trap 'rm -rf "$test_dir"' EXIT
+live_pid=""
+cleanup() {
+    if [ -n "$live_pid" ]; then
+        kill -KILL "$live_pid" 2>/dev/null || true
+        wait "$live_pid" 2>/dev/null || true
+    fi
+    rm -rf "$test_dir"
+}
+trap cleanup EXIT
 
 cp "$project_dir/build.sh" "$project_dir/run.sh" "$test_dir/"
 mkdir -p "$test_dir/configs" "$test_dir/toolchain" "$test_dir/bin"
@@ -60,6 +68,56 @@ case " $* " in
 esac
 EOF
 chmod +x "$test_dir/bin/nproc" "$test_dir/bin/git"
+
+# A build must fail without signalling a selected profile that is already
+# running.  Staging files below a live executable would otherwise split the
+# process from the runtime tree it is using.
+mkdir -p "$test_dir/run/run_1/sbin" "$test_dir/run/run_1/config" "$test_dir/run/run_1/lib"
+cat >"$test_dir/live-lighttpd.c" <<'EOF'
+#include <signal.h>
+#include <unistd.h>
+static void stop(int sig) { (void)sig; _exit(99); }
+int main(void) {
+    signal(SIGUSR2, stop);
+    signal(SIGTERM, stop);
+    for (;;) pause();
+}
+EOF
+cc "$test_dir/live-lighttpd.c" -o "$test_dir/run/run_1/sbin/lighttpd"
+touch "$test_dir/run/run_1/config/lighttpd.conf"
+touch "$test_dir/run/run_1/config/alternate.conf"
+"$test_dir/run/run_1/sbin/lighttpd" -D -f "$test_dir/run/run_1/config/alternate.conf" \
+    -m "$test_dir/run/run_1/lib" -F &
+live_pid="$!"
+printf '%s\n' "$live_pid" >"$test_dir/run/run_1/lighttpd.pid"
+if PATH="$test_dir/bin:$PATH" "$test_dir/build.sh" --config=1 --no-patch \
+    >"$test_dir/active-build.out" 2>&1; then
+    echo "A build proceeded while its selected profile was running." >&2
+    exit 1
+fi
+grep -Fq "Refusing to build or stage active lighttpd profiles: 1:$live_pid" \
+    "$test_dir/active-build.out"
+kill -0 "$live_pid"
+kill -KILL "$live_pid"
+wait "$live_pid" 2>/dev/null || true
+live_pid=""
+rm -rf "$test_dir/run"
+
+# The lock closes the PID-file startup race between run.sh and destructive
+# build staging.
+mkdir -p "$test_dir/run/.locks"
+exec {profile_lock_fd}>"$test_dir/run/.locks/config-1.lock"
+flock -n "$profile_lock_fd"
+if PATH="$test_dir/bin:$PATH" "$test_dir/build.sh" --config=1 --no-patch \
+    >"$test_dir/locked-build.out" 2>&1; then
+    echo "A build proceeded while the profile lock was held." >&2
+    exit 1
+fi
+grep -Fq 'Configuration 1 is owned by another build or run.sh supervisor' \
+    "$test_dir/locked-build.out"
+exec {profile_lock_fd}>&-
+rm -rf "$test_dir/run"
+
 if PATH="$test_dir/bin:$PATH" "$test_dir/build.sh" --no-patch -j >"$test_dir/scheduler.out" 2>&1; then
     echo "The deliberately failed mock build unexpectedly succeeded." >&2
     exit 1
@@ -83,7 +141,8 @@ cat >"$test_dir/mock-lighttpd" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$MOCK_SERVERS_FILE"
 if [[ "$*" == *'/run_1/config/lighttpd.conf'* ]]; then
-    exit 42
+    starts="$(grep -Fc '/run_1/config/lighttpd.conf' "$MOCK_SERVERS_FILE")"
+    [ "$starts" -eq 1 ] && exit 42
 fi
 trap 'exit 0' TERM
 while sleep 1; do :; done
@@ -101,14 +160,16 @@ set +e
 PATH="$test_dir/bin:$PATH" \
     MOCK_FILTER_FILE="$test_dir/filter.out" \
     MOCK_SERVERS_FILE="$test_dir/servers.out" \
-    timeout 7 "$test_dir/run.sh" --fuzz --packet --LOG_OUTPUT >"$test_dir/run.out" 2>&1
+    timeout 7 "$test_dir/run.sh" --fuzz --packet >"$test_dir/run.out" 2>&1
 run_status="$?"
 set -e
 [ "$run_status" -eq 124 ]
 expected_filter='tcp and (port 5601 or port 5602 or port 5603 or port 5604 or port 5605 or port 5606 or port 5607 or port 5608 or port 5609 or port 5610 or port 5611 or port 5612)'
 grep -Fqx "$expected_filter" "$test_dir/filter.out"
-[ "$(wc -l <"$test_dir/servers.out")" -eq 12 ]
-grep -Eq 'Config 1 child [0-9]+ exited with status 42; 11 fuzzing profiles remain\.' "$test_dir/run.out"
+[ "$(wc -l <"$test_dir/servers.out")" -eq 13 ]
+grep -Eq 'Config 1 child [0-9]+ exited with status 42 after [0-9]+s; restarting \(rapid attempt 1/5\)\.' "$test_dir/run.out"
+grep -Eq 'Config 1 restarted as child [0-9]+\.' "$test_dir/run.out"
+grep -Fq -- '--- supervisor restarting config 1 at ' "$test_dir/logs/error1"
 for config_id in $(seq 1 12); do
     grep -Fq "run_$config_id/config/lighttpd.conf" "$test_dir/servers.out"
     [ "$(find "$test_dir/logs/profiles" -mindepth 2 -maxdepth 2 -type d -name "run_$config_id" | wc -l)" -eq 1 ]
