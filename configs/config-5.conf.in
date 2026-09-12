@@ -1,0 +1,16 @@
+# Compatibility-oriented URL normalization and transformation.
+server.event-handler = "epoll"
+server.network-backend = "writev"
+server.http-parseopts += (
+    "url-normalize" => "enable",
+    "url-normalize-unreserved" => "enable",
+    "url-normalize-required" => "enable",
+    "url-path-backslash-trans" => "enable",
+    "url-path-2f-decode" => "enable",
+    "url-path-dotseg-remove" => "enable",
+    "url-query-20-plus" => "enable",
+    "url-invalid-utf8-reject" => "disable",
+)
+
+server.modules += ( "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"

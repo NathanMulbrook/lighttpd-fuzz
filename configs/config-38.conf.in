@@ -1,0 +1,12 @@
+# Inotify-backed static files, listings, expiration, and compression cache.
+server.event-handler = "poll"
+server.network-backend = "sendfile"
+server.stat-cache-engine = "inotify"
+server.modules += ( "mod_expire", "mod_deflate", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+dir-listing.activate = "enable"
+expire.url = ( "/files/" => "access plus 1 minutes", "/listing/" => "modification plus 2 minutes" )
+deflate.mimetypes = ( "text/plain", "text/html", "application/json" )
+deflate.allowed-encodings = ( "zstd", "br", "gzip", "deflate" )
+deflate.min-compress-size = 1
+deflate.cache-dir = "@RUN_DIR@/tmp/cache/compress"

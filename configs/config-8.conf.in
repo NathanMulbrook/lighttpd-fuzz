@@ -1,0 +1,23 @@
+# Rich HTML and JSON directory listings with generated-response caching.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.stream-response-body = 2
+dir-listing.activate = "enable"
+dir-listing.exclude = ( "excluded", "\\.bak$", "~$" )
+dir-listing.hide-dotfiles = "disable"
+dir-listing.external-css = "/listing.css"
+dir-listing.external-js = "/listing.js"
+dir-listing.encoding = "UTF-8"
+dir-listing.show-readme = "README.txt"
+dir-listing.show-header = "HEADER.txt"
+dir-listing.hide-readme-file = "enable"
+dir-listing.hide-header-file = "enable"
+dir-listing.encode-readme = "enable"
+dir-listing.encode-header = "enable"
+dir-listing.set-footer = "lighttpd fuzz directory footer"
+dir-listing.auto-layout = "enable"
+dir-listing.cache = ( "path" => "@RUN_DIR@/tmp/cache", "max-age" => 2 )
+dir-listing.sort = "disable"
+
+server.modules += ( "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"

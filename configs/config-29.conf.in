@@ -1,0 +1,12 @@
+# Streaming CGI requests with buffered compression of generated responses.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.stream-request-body = 2
+server.stream-response-body = 0
+server.modules += ( "mod_cgi", "mod_deflate", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+cgi.assign = ( ".cgi" => "/bin/sh" )
+cgi.execute-x-only = "disable"
+deflate.mimetypes = ( "text/plain", "text/html", "application/json" )
+deflate.allowed-encodings = ( "br", "zstd", "gzip", "deflate" )
+deflate.min-compress-size = 1

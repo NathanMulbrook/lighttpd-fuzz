@@ -1,0 +1,2 @@
+<!doctype html><title>ssi exec</title>
+<!--#exec cmd="/bin/printf ssi-exec-ok" -->

@@ -1,0 +1,14 @@
+# HTTP/2 CGI request streams with buffered dynamic-response compression.
+server.event-handler = "epoll"
+server.network-backend = "writev"
+server.stream-request-body = 2
+server.stream-response-body = 0
+server.feature-flags += ( "server.h2proto" => "enable", "server.h2c" => "enable" )
+server.modules += ( "mod_cgi", "mod_deflate", "mod_accesslog" )
+cgi.assign = ( ".cgi" => "/bin/sh" )
+cgi.execute-x-only = "disable"
+cgi.upgrade = "enable"
+deflate.mimetypes = ( "text/plain", "text/html" )
+deflate.allowed-encodings = ( "br", "gzip", "deflate" )
+deflate.min-compress-size = 1
+accesslog.filename = "@RUN_DIR@/access.log"

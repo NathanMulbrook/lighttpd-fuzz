@@ -1,0 +1,10 @@
+# CGI local redirects, X-Sendfile, pathinfo, and buffered backend responses.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.modules += ( "mod_cgi", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+cgi.assign = ( ".cgi" => "/bin/sh" )
+cgi.execute-x-only = "disable"
+cgi.local-redir = "enable"
+cgi.x-sendfile = "enable"
+cgi.x-sendfile-docroot = ( "@RUN_DIR@/www", "@RUN_DIR@/tmp" )

@@ -1,0 +1,1 @@
+This file exercises static responses, ranges, compression, and cache headers.

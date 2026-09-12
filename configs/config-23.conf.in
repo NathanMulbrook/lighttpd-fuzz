@@ -1,0 +1,11 @@
+# Forwarded-header parsing, address chains, host replacement, and remote users.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.modules += ( "mod_extforward", "mod_setenv", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+accesslog.format = "%a %V %u %r %>s %{Forwarded}i %{X-Forwarded-For}i"
+extforward.headers = ( "Forwarded", "X-Forwarded-For", "X-Real-IP" )
+extforward.forwarder = ( "127.0.0.1" => "trust" )
+extforward.params = ( "host" => "enable", "remote_user" => "enable" )
+extforward.hap-PROXY = "enable"
+setenv.add-response-header = ( "X-Forwarded-Profile" => "23" )

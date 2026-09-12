@@ -1,0 +1,27 @@
+# Strict parser defaults plus cleartext HTTP/2 and the normal Linux I/O path.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.feature-flags += (
+    "server.h2proto" => "enable",
+    "server.h2c" => "enable",
+)
+server.http-parseopts += (
+    "header-strict" => "enable",
+    "host-strict" => "enable",
+    "host-normalize" => "enable",
+    "url-normalize" => "enable",
+    "url-normalize-unreserved" => "enable",
+    "url-normalize-required" => "enable",
+    "url-ctrls-reject" => "enable",
+    "url-path-dotseg-remove" => "enable",
+    "url-invalid-utf8-reject" => "enable",
+)
+
+server.modules += (
+    "mod_status",
+    "mod_deflate",
+    "mod_accesslog",
+)
+accesslog.filename = "@RUN_DIR@/access.log"
+status.status-url = "/server-status"
+deflate.mimetypes = ( "text/plain", "text/html" )

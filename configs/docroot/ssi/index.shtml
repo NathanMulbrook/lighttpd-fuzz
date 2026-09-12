@@ -1,0 +1,10 @@
+<!--#config timefmt="%Y-%m-%dT%H:%M:%S" sizefmt="bytes" -->
+<!--#set var="FUZZ_VALUE" value="seed" -->
+<!--#if expr="$QUERY_STRING = seed=yes" -->matched<!--#elif expr="$REQUEST_METHOD = HEAD" -->head<!--#else -->fallback<!--#endif -->
+<!--#echo var="FUZZ_VALUE" -->
+<!--#echo var="DOCUMENT_URI" -->
+<!--#include file="fragment.txt" -->
+<!--#include virtual="/ssi/nested.shtml" -->
+<!--#fsize file="fragment.txt" -->
+<!--#flastmod file="fragment.txt" -->
+<!--#printenv -->

@@ -1,0 +1,27 @@
+# Authenticated HTTP/2 WebDAV mutations with partial PUT and inotify updates.
+server.event-handler = "epoll"
+server.network-backend = "writev"
+server.stat-cache-engine = "inotify"
+server.stream-request-body = 2
+server.stream-response-body = 2
+server.feature-flags += (
+    "server.h2proto" => "enable",
+    "server.h2c" => "enable",
+)
+server.modules += ( "mod_auth", "mod_authn_file", "mod_webdav", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+auth.backend = "plain"
+auth.backend.plain.userfile = "@RUN_DIR@/config/users"
+auth.require = (
+    "/dav/" => ( "method" => "basic", "realm" => "webdav-43", "require" => "user=fuzz" ),
+)
+
+$HTTP["url"] =~ "^/dav(?:/|$)" {
+    server.document-root = "@RUN_DIR@/tmp"
+    webdav.activate = "enable"
+    webdav.is-readonly = "disable"
+    webdav.opts = (
+        "partial-put-copy-modify" => "enable",
+        "propfind-depth-infinity" => "enable",
+    )
+}

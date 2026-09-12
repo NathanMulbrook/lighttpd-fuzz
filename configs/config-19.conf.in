@@ -1,0 +1,28 @@
+# Static metadata, conditional requests, range handling, indexes, and pathinfo.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.stat-cache-engine = "disable"
+server.range-requests = "enable"
+server.feature-flags += ( "http10.range" => "enable" )
+etag.use-inode = "enable"
+etag.use-mtime = "enable"
+etag.use-size = "enable"
+static-file.etags = "enable"
+static-file.disable-pathinfo = "disable"
+
+$HTTP["url"] =~ "^/indexes/" {
+    index-file.names = ( "index.html", "index.txt" )
+}
+
+$HTTP["url"] =~ "^/no-etag/" {
+    static-file.etags = "disable"
+}
+$HTTP["url"] =~ "\\.(deny|cgi)$" {
+    static-file.exclude-extensions = ( ".deny", ".cgi" )
+}
+$HTTP["url"] =~ "^/no-follow/" {
+    server.follow-symlink = "disable"
+}
+
+server.modules += ( "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"

@@ -1,0 +1,14 @@
+# HTTP/2 on poll/writev with compatibility URL normalization and status output.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.feature-flags += ( "server.h2proto" => "enable", "server.h2c" => "enable" )
+server.http-parseopts += (
+    "url-normalize" => "enable",
+    "url-normalize-unreserved" => "enable",
+    "url-path-backslash-trans" => "enable",
+    "url-path-2f-decode" => "enable",
+    "url-path-dotseg-remove" => "enable",
+)
+server.modules += ( "mod_status", "mod_accesslog" )
+status.status-url = "/server-status"
+accesslog.filename = "@RUN_DIR@/access.log"

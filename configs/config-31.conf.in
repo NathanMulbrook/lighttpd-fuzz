@@ -1,0 +1,11 @@
+# SSI raw output and shallow recursion using poll/writev.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.stream-response-body = 2
+server.modules += ( "mod_ssi", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+ssi.extension = ( ".shtml", ".ssi" )
+ssi.content-type = "text/plain"
+ssi.conditional-requests = "disable"
+ssi.exec = "disable"
+ssi.recursion-max = 1

@@ -1,0 +1,28 @@
+# Virtual-host, userdir, alias, rewrite, redirect, and condition interactions.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.modules += (
+    "mod_simple_vhost",
+    "mod_userdir",
+    "mod_alias",
+    "mod_redirect",
+    "mod_rewrite",
+    "mod_setenv",
+    "mod_accesslog",
+)
+accesslog.filename = "@RUN_DIR@/access.log"
+simple-vhost.server-root = "@RUN_DIR@/www/vhosts/"
+simple-vhost.default-host = "default.example"
+simple-vhost.document-root = "htdocs"
+userdir.path = "public_html"
+userdir.basepath = "@RUN_DIR@/www/users"
+userdir.letterhomes = "enable"
+userdir.include-user = ( "fuzz" )
+userdir.active = "enable"
+
+$HTTP["host"] == "routes.example" {
+    alias.url = ( "/route-alias/" => "@RUN_DIR@/www/files/" )
+    url.redirect = ( "^/route-redirect$" => "/route-rewrite/index.txt" )
+    url.rewrite-if-not-file = ( "^/route-rewrite/(.*)$" => "/files/$1" )
+    setenv.add-response-header = ( "X-Fuzz-Route" => "45" )
+}

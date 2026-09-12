@@ -1,0 +1,20 @@
+# Basic authentication without caching and multiple authorization expressions.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.feature-flags += ( "auth.delay-invalid-creds" => "disable" )
+server.modules += ( "mod_auth", "mod_authn_file", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+auth.backend = "plain"
+auth.backend.plain.userfile = "@RUN_DIR@/config/users"
+auth.require = (
+    "/private/" => (
+        "method" => "basic",
+        "realm" => "private-profile-32",
+        "require" => "valid-user",
+    ),
+    "/basic-user/" => (
+        "method" => "basic",
+        "realm" => "user-profile-32",
+        "require" => "user=fuzz",
+    ),
+)

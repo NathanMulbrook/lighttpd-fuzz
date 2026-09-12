@@ -1,0 +1,25 @@
+# HTTP/2 static ranges, validators, inotify, listings, expiry, and compression.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.stat-cache-engine = "inotify"
+server.stream-response-body = 2
+server.range-requests = "enable"
+server.feature-flags += (
+    "server.h2proto" => "enable",
+    "server.h2c" => "enable",
+    "http10.range" => "enable",
+)
+etag.use-inode = "enable"
+etag.use-mtime = "enable"
+etag.use-size = "enable"
+server.modules += ( "mod_expire", "mod_deflate", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+dir-listing.activate = "enable"
+expire.url = (
+    "/files/" => "access plus 5 minutes",
+    "/listing/" => "modification plus 1 minutes",
+)
+deflate.mimetypes = ( "text/plain", "text/html", "application/json" )
+deflate.allowed-encodings = ( "zstd", "br", "gzip", "deflate" )
+deflate.min-compress-size = 1
+deflate.cache-dir = "@RUN_DIR@/tmp/cache/compress"

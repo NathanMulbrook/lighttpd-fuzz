@@ -1,0 +1,43 @@
+# Reverse proxy, FastCGI, and SCGI request/response handling.
+server.event-handler = "epoll"
+server.network-backend = "writev"
+server.stream-request-body = 2
+server.stream-response-body = 2
+server.modules += ( "mod_proxy", "mod_fastcgi", "mod_scgi", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+
+# The final URL component selects a deterministic valid or malformed response.
+fastcgi.server = ( "/fastcgi/" => (
+    "fixture" => (
+        "host" => "127.0.0.1",
+        "port" => 6502,
+        "check-local" => "disable",
+    ),
+) )
+
+scgi.server = ( "/scgi/" => (
+    "fixture" => (
+        "host" => "127.0.0.1",
+        "port" => 6503,
+        "check-local" => "disable",
+    ),
+) )
+
+$HTTP["url"] =~ "^/proxy/" {
+    proxy.server = ( "" => (
+        "fixture-one" => ( "host" => "127.0.0.1", "port" => 6501 ),
+        "fixture-two" => ( "host" => "127.0.0.1", "port" => 6501 ),
+    ) )
+    proxy.balance = "round-robin"
+    proxy.forwarded = (
+        "by" => "enable",
+        "for" => "enable",
+        "host" => "enable",
+        "proto" => "enable",
+    )
+    proxy.header = (
+        "upgrade" => "enable",
+        "map-urlpath" => ( "/proxy/" => "/" ),
+        "map-host-request" => ( "proxy.example" => "localhost" ),
+    )
+}

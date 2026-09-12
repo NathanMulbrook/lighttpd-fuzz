@@ -1,0 +1,11 @@
+# Transparent socket forwarding before HTTP parsing through mod_sockproxy.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.stream-request-body = 2
+server.stream-response-body = 2
+server.modules += ( "mod_sockproxy" )
+sockproxy.server = ( "" => (
+    "fixture-one" => ( "host" => "127.0.0.1", "port" => 6501 ),
+    "fixture-two" => ( "host" => "127.0.0.1", "port" => 6501 ),
+) )
+sockproxy.balance = "least-connection"

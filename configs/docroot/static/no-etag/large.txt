@@ -1,0 +1,8 @@
+no-etag fixture line 01 abcdefghijklmnopqrstuvwxyz 0123456789
+no-etag fixture line 02 abcdefghijklmnopqrstuvwxyz 0123456789
+no-etag fixture line 03 abcdefghijklmnopqrstuvwxyz 0123456789
+no-etag fixture line 04 abcdefghijklmnopqrstuvwxyz 0123456789
+no-etag fixture line 05 abcdefghijklmnopqrstuvwxyz 0123456789
+no-etag fixture line 06 abcdefghijklmnopqrstuvwxyz 0123456789
+no-etag fixture line 07 abcdefghijklmnopqrstuvwxyz 0123456789
+no-etag fixture line 08 abcdefghijklmnopqrstuvwxyz 0123456789

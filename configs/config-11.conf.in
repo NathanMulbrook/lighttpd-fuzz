@@ -1,0 +1,12 @@
+# Buffered CGI request handling and CGI response-header parsing.
+server.event-handler = "epoll"
+server.network-backend = "writev"
+server.stream-request-body = 0
+server.stream-response-body = 0
+server.modules += ( "mod_cgi", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+cgi.assign = ( ".cgi" => "/bin/sh" )
+cgi.execute-x-only = "disable"
+cgi.local-redir = "enable"
+cgi.x-sendfile = "enable"
+cgi.x-sendfile-docroot = ( "@RUN_DIR@/www" )

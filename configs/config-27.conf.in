@@ -1,0 +1,15 @@
+# Permissive HTTP/1 header, host, URL, and GET-body parsing on epoll/sendfile.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.feature-flags += ( "server.h2proto" => "disable", "server.h2c" => "disable" )
+server.http-parseopts += (
+    "header-strict" => "disable",
+    "host-strict" => "disable",
+    "host-normalize" => "disable",
+    "url-normalize" => "disable",
+    "url-path-backslash-trans" => "disable",
+    "url-invalid-utf8-reject" => "disable",
+    "method-get-body" => "enable",
+)
+server.modules += ( "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"

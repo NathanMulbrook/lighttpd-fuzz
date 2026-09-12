@@ -1,0 +1,13 @@
+# Every compiled compression codec plus the on-disk compression cache.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.modules += ( "mod_deflate", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+deflate.mimetypes = ( "text/plain", "text/html", "application/json" )
+deflate.allowed-encodings = ( "br", "zstd", "bzip2", "gzip", "deflate" )
+deflate.min-compress-size = 1
+deflate.max-compress-size = 1024
+deflate.compression-level = 4
+deflate.output-buffer-size = 4096
+deflate.work-block-size = 2048
+deflate.cache-dir = "@RUN_DIR@/tmp/cache/compress"

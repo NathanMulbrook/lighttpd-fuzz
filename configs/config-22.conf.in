@@ -1,0 +1,25 @@
+# Hash-balanced reverse proxy plus HTTP upgrade and CONNECT tunnel paths.
+server.event-handler = "poll"
+server.network-backend = "sendfile"
+server.modules += ( "mod_proxy", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+
+$HTTP["url"] =~ "^/gateway/" {
+    proxy.server = ( "" => (
+        "fixture-one" => ( "host" => "127.0.0.1", "port" => 6501 ),
+        "fixture-two" => ( "host" => "127.0.0.1", "port" => 6501 ),
+    ) )
+    proxy.balance = "hash"
+    proxy.replace-http-host = "enable"
+    proxy.header = (
+        "upgrade" => "enable",
+        "map-urlpath" => ( "/gateway/" => "/" ),
+    )
+}
+
+$HTTP["request-method"] == "CONNECT" {
+    proxy.server = ( "" => (
+        "tunnel" => ( "host" => "127.0.0.1", "port" => 6501 ),
+    ) )
+    proxy.header = ( "connect" => "enable" )
+}

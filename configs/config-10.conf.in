@@ -1,0 +1,16 @@
+# WebDAV mutation sequences with inotify invalidation and partial PUT support.
+server.event-handler = "poll"
+server.network-backend = "sendfile"
+server.stat-cache-engine = "inotify"
+server.modules += ( "mod_webdav", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+
+$HTTP["url"] =~ "^/dav(?:/|$)" {
+    server.document-root = "@RUN_DIR@/tmp"
+    webdav.activate = "enable"
+    webdav.is-readonly = "disable"
+    webdav.opts = (
+        "partial-put-copy-modify" => "enable",
+        "propfind-depth-infinity" => "enable",
+    )
+}

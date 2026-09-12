@@ -1,0 +1,27 @@
+# HTTP/1.0 backend translation, response remapping, forwarding, and buffering.
+server.event-handler = "poll"
+server.network-backend = "sendfile"
+server.stream-request-body = 1
+server.stream-response-body = 0
+server.modules += ( "mod_proxy", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+
+$HTTP["url"] =~ "^/legacy-proxy/" {
+    proxy.server = ( "" => (
+        "fixture" => ( "host" => "127.0.0.1", "port" => 6501 ),
+    ) )
+    proxy.forwarded = (
+        "by" => "enable",
+        "for" => "enable",
+        "host" => "enable",
+        "proto" => "enable",
+        "remote_user" => "enable",
+    )
+    proxy.header = (
+        "force-http10" => "enable",
+        "map-urlpath" => ( "/legacy-proxy/" => "/" ),
+        "map-host-request" => ( "legacy.example" => "localhost" ),
+        "map-host-response" => ( "localhost" => "legacy.example" ),
+        "map-urlpath-resp-host-include" => ( "legacy.example" ),
+    )
+}

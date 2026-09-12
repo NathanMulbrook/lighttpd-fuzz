@@ -1,0 +1,8 @@
+# Access-log request/response fields, cookies, timings, byte counts, and escaping.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.modules += ( "mod_setenv", "mod_accesslog" )
+setenv.add-environment = ( "FUZZ_ACCESS_ENV" => "profile-24" )
+setenv.add-response-header = ( "X-Access-Response" => "logged" )
+accesslog.filename = "@RUN_DIR@/access.log"
+accesslog.format = "%a %A %{remote}p %p %V %v %u %t %{begin:msec}t %{usec}T %D %r %m %U %q %H %>s %I %O %b %k %X %f %{Host}i %{User-Agent}i %{X-Access-Response}o %{fuzz}C %{FUZZ_ACCESS_ENV}e %%"

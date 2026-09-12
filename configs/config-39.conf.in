@@ -1,0 +1,43 @@
+# Production-style plugin ordering and interactions across routing and content handlers.
+server.event-handler = "epoll"
+server.network-backend = "writev"
+server.stream-request-body = 1
+server.stream-response-body = 1
+server.modules += (
+    "mod_extforward",
+    "mod_auth",
+    "mod_authn_file",
+    "mod_setenv",
+    "mod_access",
+    "mod_alias",
+    "mod_redirect",
+    "mod_rewrite",
+    "mod_cgi",
+    "mod_ssi",
+    "mod_expire",
+    "mod_status",
+    "mod_deflate",
+    "mod_accesslog",
+)
+accesslog.filename = "@RUN_DIR@/access.log"
+accesslog.format = "%a %u %t %r %>s %I %O %{User-Agent}i %{Content-Type}o"
+extforward.headers = ( "Forwarded", "X-Forwarded-For" )
+extforward.forwarder = ( "127.0.0.1" => "trust" )
+auth.backend = "plain"
+auth.backend.plain.userfile = "@RUN_DIR@/config/users"
+auth.require = (
+    "/private/" => ( "method" => "basic", "realm" => "profile-39", "require" => "valid-user" ),
+)
+alias.url = ( "/stack-alias/" => "@RUN_DIR@/www/files/" )
+url.redirect = ( "^/stack-redirect$" => "/" )
+url.rewrite-if-not-file = ( "^/stack-rewrite/(.*)$" => "/$1" )
+cgi.assign = ( ".cgi" => "/bin/sh" )
+cgi.execute-x-only = "disable"
+ssi.extension = ( ".shtml" )
+ssi.exec = "disable"
+expire.url = ( "/files/" => "access plus 1 hours" )
+status.status-url = "/server-status"
+deflate.mimetypes = ( "text/plain", "text/html" )
+deflate.allowed-encodings = ( "br", "gzip", "deflate" )
+deflate.min-compress-size = 1
+setenv.add-response-header = ( "X-Fuzz-Config" => "39" )

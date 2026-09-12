@@ -1,0 +1,6 @@
+# Enhanced virtual-host wildcard expansion with host and port normalization.
+server.event-handler = "poll"
+server.network-backend = "sendfile"
+server.modules += ( "mod_evhost", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+evhost.path-pattern = "@RUN_DIR@/www/evhosts/%3/%2.%1/htdocs/"

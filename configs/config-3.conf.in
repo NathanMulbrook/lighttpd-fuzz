@@ -1,0 +1,19 @@
+# Writable WebDAV methods and streamed responses on the Linux event path.
+server.event-handler = "epoll"
+server.network-backend = "writev"
+server.stream-response-body = 1
+
+server.modules += (
+    "mod_access",
+    "mod_webdav",
+    "mod_status",
+    "mod_accesslog",
+)
+
+accesslog.filename = "@RUN_DIR@/access.log"
+status.status-url = "/server-status"
+$HTTP["url"] =~ "^/dav(?:/|$)" {
+    server.document-root = "@RUN_DIR@/tmp"
+    webdav.activate = "enable"
+    webdav.is-readonly = "disable"
+}

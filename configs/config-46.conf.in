@@ -1,0 +1,15 @@
+# SSI command execution, nested includes, validators, and CGI pathinfo.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.stream-request-body = 1
+server.stream-response-body = 1
+server.modules += ( "mod_cgi", "mod_ssi", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+cgi.assign = ( ".cgi" => "/bin/sh" )
+cgi.execute-x-only = "disable"
+cgi.local-redir = "enable"
+ssi.extension = ( ".shtml", ".ssi" )
+ssi.content-type = "text/html"
+ssi.conditional-requests = "enable"
+ssi.exec = "enable"
+ssi.recursion-max = 8

@@ -1,0 +1,24 @@
+server.bind = "127.0.0.1"
+server.port = @PORT@
+server.document-root = "@RUN_DIR@/www"
+server.pid-file = "@RUN_DIR@/lighttpd.pid"
+server.upload-dirs = ( "@RUN_DIR@/tmp/uploads" )
+server.max-worker = 0
+server.max-connections = 128
+server.max-request-size = 64
+server.max-keep-alive-requests = 32
+server.max-keep-alive-idle = 2
+server.max-read-idle = 2
+server.max-write-idle = 2
+
+index-file.names = ( "index.html" )
+server.dir-listing = "enable"
+mimetype.assign = (
+    ".html" => "text/html",
+    ".txt" => "text/plain",
+    ".json" => "application/json",
+)
+
+$HTTP["url"] == "/__fuzz_health" {
+    server.error-handler-404 = ""
+}

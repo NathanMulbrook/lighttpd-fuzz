@@ -1,0 +1,11 @@
+# Read-only WebDAV discovery and method rejection on epoll/sendfile.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.modules += ( "mod_webdav", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+$HTTP["url"] =~ "^/dav(?:/|$)" {
+    server.document-root = "@RUN_DIR@/tmp"
+    webdav.activate = "enable"
+    webdav.is-readonly = "enable"
+    webdav.opts = ( "propfind-depth-infinity" => "enable" )
+}

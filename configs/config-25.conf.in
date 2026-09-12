@@ -1,0 +1,11 @@
+# Status, configuration, and statistics response generators behind conditions.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.modules += ( "mod_status", "mod_setenv", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+status.status-url = "/admin/server-status"
+status.config-url = "/admin/server-config"
+status.statistics-url = "/admin/server-statistics"
+$HTTP["url"] =~ "^/admin/" {
+    setenv.add-response-header = ( "Cache-Control" => "no-store" )
+}

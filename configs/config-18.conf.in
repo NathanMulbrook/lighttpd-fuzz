@@ -1,0 +1,21 @@
+# Streamed HTTP/2 requests, frames, dynamic handlers, compression, and WebDAV.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.stream-request-body = 2
+server.stream-response-body = 2
+server.max-request-field-size = 1024
+server.feature-flags += (
+    "server.h2proto" => "enable",
+    "server.h2c" => "enable",
+)
+server.modules += ( "mod_status", "mod_deflate", "mod_webdav", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+status.status-url = "/server-status"
+deflate.mimetypes = ( "text/plain", "text/html" )
+deflate.allowed-encodings = ( "br", "gzip", "deflate" )
+
+$HTTP["url"] =~ "^/dav(?:/|$)" {
+    server.document-root = "@RUN_DIR@/tmp"
+    webdav.activate = "enable"
+    webdav.is-readonly = "disable"
+}

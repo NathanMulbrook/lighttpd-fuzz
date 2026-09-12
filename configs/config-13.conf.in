@@ -1,0 +1,10 @@
+# SSI parser, includes, variables, validators, and bounded recursion.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.modules += ( "mod_ssi", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+ssi.extension = ( ".shtml" )
+ssi.content-type = "text/html"
+ssi.conditional-requests = "enable"
+ssi.exec = "disable"
+ssi.recursion-max = 4

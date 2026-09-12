@@ -1,0 +1,15 @@
+# Streaming CGI request/response queues, upgrades, timeouts, and child cleanup.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.stream-request-body = 2
+server.stream-response-body = 2
+server.modules += ( "mod_cgi", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+cgi.assign = ( ".cgi" => "/bin/sh" )
+cgi.execute-x-only = "disable"
+cgi.upgrade = "enable"
+cgi.limits = (
+    "read-timeout" => 2,
+    "write-timeout" => 2,
+    "tcp-fin-propagate" => "TERM",
+)

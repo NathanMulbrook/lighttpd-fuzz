@@ -1,0 +1,16 @@
+# RFC 6455 WebSocket handshakes, frame parsing, origin checks, and backend I/O.
+server.event-handler = "epoll"
+server.network-backend = "writev"
+server.stream-request-body = 2
+server.stream-response-body = 2
+server.modules += ( "mod_wstunnel", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+
+$HTTP["url"] =~ "^/ws(?:/|$)" {
+    wstunnel.server = ( "" => (
+        "fixture" => ( "host" => "127.0.0.1", "port" => 6501 ),
+    ) )
+    wstunnel.frame-type = "binary"
+    wstunnel.origins = ( "http://localhost", "https://one.example" )
+    wstunnel.ping-interval = 1
+}

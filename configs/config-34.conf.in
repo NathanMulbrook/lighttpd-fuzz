@@ -1,0 +1,16 @@
+# WebDAV compatibility paths for partial PUT and symlink-aware PROPFIND.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.stream-response-body = 2
+server.modules += ( "mod_webdav", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+$HTTP["url"] =~ "^/dav(?:/|$)" {
+    server.document-root = "@RUN_DIR@/tmp"
+    webdav.activate = "enable"
+    webdav.is-readonly = "disable"
+    webdav.opts = (
+        "deprecated-unsafe-partial-put" => "enable",
+        "unsafe-propfind-follow-symlink" => "enable",
+        "propfind-depth-infinity" => "enable",
+    )
+}

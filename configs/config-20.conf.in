@@ -1,0 +1,13 @@
+# HTTP/1 lifecycle, request limits, chunked bodies, trailers, and pipelining.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.protocol-http11 = "disable"
+server.max-request-field-size = 1024
+server.http-parseopts += ( "method-get-body" => "enable" )
+server.feature-flags += ( "request.trailer-whitelist" => "test-trailer" )
+server.stream-request-body = 2
+server.stream-response-body = 2
+server.modules += ( "mod_cgi", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+cgi.assign = ( ".cgi" => "/bin/sh" )
+cgi.execute-x-only = "disable"

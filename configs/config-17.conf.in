@@ -1,0 +1,11 @@
+# Isolated user-directory mapping, allow/deny lists, and letter homes.
+server.event-handler = "epoll"
+server.network-backend = "writev"
+server.modules += ( "mod_userdir", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+userdir.path = "public_html"
+userdir.basepath = "@RUN_DIR@/www/users"
+userdir.letterhomes = "enable"
+userdir.include-user = ( "fuzz" )
+userdir.exclude-user = ( "root" )
+userdir.active = "enable"

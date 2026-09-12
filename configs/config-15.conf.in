@@ -1,0 +1,8 @@
+# Host-to-document-root mapping with fallback through mod_simple_vhost.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.modules += ( "mod_simple_vhost", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+simple-vhost.server-root = "@RUN_DIR@/www/vhosts/"
+simple-vhost.default-host = "default.example"
+simple-vhost.document-root = "htdocs"

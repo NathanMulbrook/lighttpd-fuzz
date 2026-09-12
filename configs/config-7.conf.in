@@ -1,0 +1,53 @@
+# Nested request conditions, routing, access checks, and error responses.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.error-handler-404 = "/errors/404.html"
+
+server.modules += (
+    "mod_setenv",
+    "mod_access",
+    "mod_alias",
+    "mod_redirect",
+    "mod_rewrite",
+    "mod_accesslog",
+)
+accesslog.filename = "@RUN_DIR@/access.log"
+alias.url = ( "/condition-alias/" => "@RUN_DIR@/www/files/" )
+url.redirect = ( "^/condition-redirect/(.*)$" => "/$1" )
+url.rewrite-if-not-file = ( "^/condition-rewrite/(.*)$" => "/$1" )
+
+$HTTP["host"] =~ "^conditions\\." {
+    setenv.add-response-header = ( "X-Condition-Host" => "matched" )
+    $HTTP["url"] =~ "^/branch/" {
+        $HTTP["query-string"] =~ "(^|&)mode=fuzz(&|$)" {
+            setenv.add-response-header = ( "X-Condition-Query" => "matched" )
+        }
+    }
+}
+$HTTP["request-method"] == "OPTIONS" {
+    setenv.add-response-header = ( "X-Condition-Method" => "options" )
+}
+$HTTP["useragent"] =~ "FuzzAgent" {
+    setenv.add-response-header = ( "X-Condition-Agent" => "matched" )
+}
+$HTTP["referer"] =~ "trusted\\.example" {
+    setenv.add-response-header = ( "X-Condition-Referer" => "matched" )
+}
+$HTTP["cookie"] =~ "fuzz=yes" {
+    setenv.add-response-header = ( "X-Condition-Cookie" => "matched" )
+}
+$HTTP["language"] =~ "en" {
+    setenv.add-response-header = ( "X-Condition-Language" => "matched" )
+}
+$HTTP["remoteip"] == "127.0.0.1" {
+    setenv.add-response-header = ( "X-Condition-Remote" => "local" )
+}
+$HTTP["scheme"] == "http" {
+    setenv.add-response-header = ( "X-Condition-Scheme" => "http" )
+}
+$HTTP["url"] =~ "\\.(deny|secret)$" {
+    url.access-deny = ( "" )
+}
+$HTTP["host"] == "status-errors.example" {
+    server.errorfile-prefix = "@RUN_DIR@/www/errors/status-"
+}

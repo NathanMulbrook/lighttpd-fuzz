@@ -1,0 +1,20 @@
+# RFC 8441 HTTP/2 extended CONNECT WebSockets and tunneled DATA frames.
+server.event-handler = "epoll"
+server.network-backend = "sendfile"
+server.stream-request-body = 2
+server.stream-response-body = 2
+server.feature-flags += (
+    "server.h2proto" => "enable",
+    "server.h2c" => "enable",
+)
+server.modules += ( "mod_wstunnel", "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
+
+$HTTP["url"] =~ "^/h2-ws(?:/|$)" {
+    wstunnel.server = ( "" => (
+        "fixture" => ( "host" => "127.0.0.1", "port" => 6501 ),
+    ) )
+    wstunnel.frame-type = "binary"
+    wstunnel.origins = ( "http://localhost" )
+    wstunnel.ping-interval = 1
+}

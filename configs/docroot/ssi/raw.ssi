@@ -1,0 +1,1 @@
+raw-ssi-start <!--#echo var="REQUEST_METHOD" --> <!--#include file="fragment.txt" --> raw-ssi-end

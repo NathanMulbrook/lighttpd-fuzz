@@ -1,0 +1,17 @@
+# Strict HTTP/1 parsing without protocol upgrades.
+server.event-handler = "poll"
+server.network-backend = "writev"
+server.feature-flags += ( "server.h2proto" => "disable", "server.h2c" => "disable" )
+server.http-parseopts += (
+    "header-strict" => "enable",
+    "host-strict" => "enable",
+    "host-normalize" => "enable",
+    "url-normalize" => "enable",
+    "url-normalize-required" => "enable",
+    "url-ctrls-reject" => "enable",
+    "url-path-2f-reject" => "enable",
+    "url-path-dotseg-reject" => "enable",
+    "url-invalid-utf8-reject" => "enable",
+)
+server.modules += ( "mod_accesslog" )
+accesslog.filename = "@RUN_DIR@/access.log"
