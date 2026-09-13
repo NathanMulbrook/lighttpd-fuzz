@@ -382,10 +382,9 @@ run_fuzzer() {
     fi
 
     local profile_file="$config_profile_dir/default-%m-%p%c.profraw"
-    # UBSan reports recoverable language errors and keeps fuzzing.  ASan stops
-    # after an invalid memory access because continuing from corrupted process
-    # state is unreliable and libFuzzer must retain the triggering input.
-    local asan_options="strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:symbolize=1:external_symbolizer_path=$LLVM_ROOT/bin/llvm-symbolizer:log_path=$directory/logs/asan$build_config.log:halt_on_error=1"
+    # Log recoverable ASan and UBSan findings and keep fuzzing. Fatal signals
+    # and sanitizer failures that cannot recover still terminate the process.
+    local asan_options="strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:symbolize=1:external_symbolizer_path=$LLVM_ROOT/bin/llvm-symbolizer:log_path=$directory/logs/asan$build_config.log:halt_on_error=0"
     local ubsan_options="print_stacktrace=1:halt_on_error=0:log_path=$directory/logs/asan$build_config.log"
     local command=("$binary" -D -f "$config" -m "$run_dir/lib")
     local run_environment=(
