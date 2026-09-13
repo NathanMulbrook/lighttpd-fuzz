@@ -737,6 +737,7 @@ def h2_extended_connect_headers(path=b"/h2-ws/", stream_id=1):
         + hpack_literal(4, path)
         + hpack_literal(1, b"localhost")
         + hpack_literal_name(b":protocol", b"websocket")
+        + hpack_literal_name(b"sec-websocket-version", b"13")
         + hpack_literal_name(b"origin", b"http://localhost")
     )
     return h2_frame(0x01, 0x04, stream_id, block)
