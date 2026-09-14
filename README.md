@@ -268,7 +268,7 @@ libFuzzer's no-main runtime, adding `-F`, forcing single-process foreground
 operation, and launching the driver immediately before the event loop. Any
 upstream drift that breaks the pinned patch is a visible build failure.
 
-Confirmed fixes in `lighttpd-patches-private/findings/*/fix.patch`, when that
+Confirmed fixes in `lighttpd-patches-private/patches/*.patch`, when that
 checkout is present, are also applied only to exported build copies. This lets
 campaigns progress beyond known failures without modifying the upstream
 checkout. Existing binaries must be rebuilt before a new fix takes effect.

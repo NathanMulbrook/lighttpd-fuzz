@@ -45,7 +45,7 @@ LIGHTTPD_REPOSITORY="${LIGHTTPD_REPOSITORY:-https://github.com/lighttpd/lighttpd
 source_dir="$directory/lighttpd"
 PATCHDIRS=(
     "lighttpd-patches/patches"
-    "lighttpd-patches-private/findings"
+    "lighttpd-patches-private/patches"
 )
 
 CONFIG_IDS=()
