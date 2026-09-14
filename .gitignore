@@ -13,7 +13,6 @@ leak-*
 lighttpd/
 lighttpd-patches/
 lighttpd-patches-private/
-findings/
 toolchain/llvm-*/
 toolchain/work/
 testTools/

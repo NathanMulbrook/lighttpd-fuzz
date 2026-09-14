@@ -95,13 +95,15 @@ time measuring backend connection failures.
 
 As in the 389 DS runner, `logs/errorN` contains the combined launcher,
 lighttpd, and libFuzzer output for profile N. Request records remain in
-`run/run_N/access.log` where that profile enables `mod_accesslog`.
+`run/run_N/access.log` where that profile enables `mod_accesslog`; these logs
+are rotated at 100 MB.
 At the next launch, an existing `logs/errorN` is moved to
 `logs/old/error/<campaign-id>/errorN`, leaving one fresh root log per selected
 configuration.
 
 Set `LIGHTTPD_FUZZ_CORPUS=/path/to/corpus` before `./run.sh` to use a
-different shared corpus directory.
+different shared corpus directory. Run `./normalize-corpus-flags.py /path/to/corpus`
+once before its first use; build staging adds seeds only to the default corpus.
 
 Or run one:
 

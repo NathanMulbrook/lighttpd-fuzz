@@ -3,10 +3,6 @@
 directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$directory"
 
-mkdir -p logs/oldasan
-if [ -f asanfiltered.log ]; then
-    cp asanfiltered.log logs/oldasan/
-fi
 rm -f asanfiltered.log
 touch asanfiltered.log
 
