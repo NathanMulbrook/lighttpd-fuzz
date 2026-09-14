@@ -19,7 +19,7 @@ bash "$directory/tests/test_dynamic_configs.sh"
 )
 for patch_dir in \
     "$directory/lighttpd-patches/patches" \
-    "$directory/lighttpd-patches-private/findings"; do
+    "$directory/lighttpd-patches-private/patches"; do
     [ -d "$patch_dir" ] || continue
     while IFS= read -r -d '' patch_file; do
         git -C "$directory/lighttpd" apply --check "$patch_file"
