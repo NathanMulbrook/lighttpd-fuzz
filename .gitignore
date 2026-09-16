@@ -17,6 +17,7 @@ toolchain/llvm-*/
 toolchain/work/
 testTools/
 covbridge-source.zip
+*.iso
 .agents/
 .codex/
 *.log
