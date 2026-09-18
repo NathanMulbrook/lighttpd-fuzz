@@ -18,6 +18,7 @@ toolchain/work/
 testTools/
 covbridge-source.zip
 *.iso
+lnvgy_fw_bmc_*.tar
 .agents/
 .codex/
 *.log
