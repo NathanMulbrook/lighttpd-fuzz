@@ -368,7 +368,7 @@ run_fuzzer() {
 
     if [ ! -x "$binary" ] || [ ! -f "$config" ] || [ ! -f "$variant_config" ]; then
         echo "Configuration $build_config has not been built and staged."
-        echo "Run ./build.sh --config=$build_config --directory first."
+        echo "Run ./build.sh --config=$build_config first."
         return 1
     fi
     acquire_config_lock "$build_config" || return 1

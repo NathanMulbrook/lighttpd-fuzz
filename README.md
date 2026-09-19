@@ -22,11 +22,11 @@ This workspace already contains it. To recreate it on another machine, run:
 Build and stage all 47 configurations:
 
 ```console
-./build.sh --directory --jobs
+./build.sh --jobs
 ```
 
-The short form is `./build.sh -d -j`. The usual layout and interface are
-preserved:
+The short form is `./build.sh -j`. Runtime staging is part of a normal build.
+The usual layout and interface are preserved:
 
 - `build/build_N`: out-of-tree build
 - `build/src_N`: temporary patched source
@@ -43,7 +43,7 @@ about 70 compiler jobs rather than starting all 47 builds simultaneously.
 To build only one profile:
 
 ```console
-./build.sh -c=23 -d -j
+./build.sh -c=23 -j
 ```
 
 `--rebuild-directory` recreates only the runtime configuration and fixtures
@@ -54,7 +54,7 @@ upstream when `lighttpd/` is absent.
 An alternate compatible LLVM path can still be selected explicitly:
 
 ```console
-LLVM_ROOT=/path/to/llvm-23.1.1 ./build.sh --config=1 --directory
+LLVM_ROOT=/path/to/llvm-23.1.1 ./build.sh --config=1
 ```
 
 ## Running

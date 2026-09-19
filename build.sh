@@ -7,7 +7,7 @@ help() {
     echo "Usage: ./build.sh [options]"
     echo "  --bootstrap-toolchain  Build the pinned LLVM toolchain and exit"
     echo "  --config=N, -c=N       Build configuration N (default: all discovered configs)"
-    echo "  --directory, -d        Create the server runtime directory"
+    echo "  --directory, -d        Create the server runtime directory (default)"
     echo "  --rebuild-directory, -r  Recreate runtime files from an existing build"
     echo "  --jobs, -j             Build with ten jobs per configuration"
     echo "  --jobs=N, -j=N, -jN    Build with N jobs per configuration"
@@ -37,7 +37,7 @@ fi
 PATCH=1
 CONFIG="all"
 BUILD_INIT=0
-BUILD_DIRECTORY=0
+BUILD_DIRECTORY=1
 REBUILD_DIRECTORY=0
 JOBS=1
 LIGHTTPD_REF="${LIGHTTPD_REF:-2ddc51389a139d2b08daf310596c951c1d53dc8d}"
