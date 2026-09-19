@@ -73,7 +73,7 @@ def wait_for_profiles(supervisor):
             if config_id == 23:
                 probe = b"PROXY UNKNOWN\r\n" + probe
             try:
-                response, _ = exchange(5600 + config_id, probe)
+                response, _ = exchange(7600 + config_id, probe)
             except OSError:
                 continue
             if response.startswith(b"HTTP/"):
@@ -85,7 +85,7 @@ def wait_for_profiles(supervisor):
 
 def check_cgi_compression(config_id):
     response, _ = exchange(
-        5600 + config_id,
+        7600 + config_id,
         request(b"/cgi/echo.cgi?stream", b"Accept-Encoding: gzip\r\n"),
     )
     assert_status(response, 200)

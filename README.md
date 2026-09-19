@@ -31,7 +31,7 @@ The usual layout and interface are preserved:
 - `build/build_N`: out-of-tree build
 - `build/src_N`: temporary patched source
 - `run/run_N`: installed binary, modules, fixture files, and configuration
-- HTTP port `5600 + N`
+- HTTP port `7600 + N`
 - `logs/buildN.log`, `logs/errorN`, `logs/asanN.log*`, and
   `logs/testCasesN`
 
@@ -75,7 +75,9 @@ Check process state, CPU use, corpus activity, and the latest libFuzzer pulse:
 Each process has a lighttpd event-loop thread, an embedded libFuzzer execution
 thread, and a mostly idle libFuzzer timer thread. The full matrix therefore
 has about 141 OS threads, with up to 94 doing request and fuzzing work.
-Profiles use ports 5601 through 5647.
+Profiles use ports 7601 through 7647. `run.sh` checks the selected ports before
+launching and exits without starting a partial campaign if another process is
+already listening on any of them.
 
 `build.sh` only compiles and stages profiles; it never starts a server or
 fuzzer. It refuses to build or stage a selected profile while that profile is
@@ -137,9 +139,9 @@ As in the 389 DS scripts, `run.sh --fuzz --config=1` disables the embedded
 fuzzer and starts only the instrumented server. This is useful for replay:
 
 ```console
-./send-test-case.py request.bin --port 5601
-./send-test-case.py crash-input --packet 2 --port 5601
-./send-test-case.py crash-input --fuzzer-input --port 5601
+./send-test-case.py request.bin --port 7601
+./send-test-case.py crash-input --packet 2 --port 7601
+./send-test-case.py crash-input --fuzzer-input --port 7601
 ```
 
 Each `run.sh` session writes raw coverage profiles below

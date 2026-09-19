@@ -14,7 +14,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define DEFAULT_PORT 5601
+#define DEFAULT_PORT 7601
 #define PACKET_DELAY_US 1000
 #define FRAGMENT_DELAY_US 100
 #define RESPONSE_TIMEOUT_MS 250

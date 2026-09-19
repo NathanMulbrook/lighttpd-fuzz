@@ -164,7 +164,7 @@ PATH="$test_dir/bin:$PATH" \
 run_status="$?"
 set -e
 [ "$run_status" -eq 124 ]
-expected_filter='tcp and (port 5601 or port 5602 or port 5603 or port 5604 or port 5605 or port 5606 or port 5607 or port 5608 or port 5609 or port 5610 or port 5611 or port 5612)'
+expected_filter='tcp and (port 7601 or port 7602 or port 7603 or port 7604 or port 7605 or port 7606 or port 7607 or port 7608 or port 7609 or port 7610 or port 7611 or port 7612)'
 grep -Fqx "$expected_filter" "$test_dir/filter.out"
 [ "$(wc -l <"$test_dir/servers.out")" -eq 13 ]
 grep -Eq 'Config 1 child [0-9]+ exited with status 42 after [0-9]+s; restarting \(rapid attempt 1/5\)\.' "$test_dir/run.out"

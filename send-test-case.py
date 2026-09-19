@@ -72,7 +72,7 @@ def main(argv=None):
         help="send all packets using the input's framing and wait flag",
     )
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=5601)
+    parser.add_argument("--port", type=int, default=7601)
     parser.add_argument("--timeout", type=float, default=1.0)
     args = parser.parse_args(argv)
 

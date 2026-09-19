@@ -17,6 +17,7 @@ CONFIG="all"
 LOG_OUTPUT=1
 PACKET_CAPTURE=0
 TEST_CASE_LOG=0
+PORT_BASE=7600
 profile_dir="$directory/logs/profiles/$(date -u +%Y%m%dT%H%M%SZ)-$$"
 campaign_id="${profile_dir##*/}"
 error_archive_dir="$directory/logs/old/error/$campaign_id"
@@ -55,7 +56,7 @@ discover_configs() {
         fi
         config_id="${BASH_REMATCH[1]}"
         config_number="$((10#$config_id))"
-        if [ "$config_number" -gt 59935 ]; then
+        if [ "$config_number" -gt "$((65535 - PORT_BASE))" ]; then
             echo "Configuration $config_id cannot use a TCP port above 65535."
             return 1
         fi
@@ -82,6 +83,28 @@ valid_config() {
         [ "$requested" = "$config_id" ] && return 0
     done
     return 1
+}
+
+check_selected_ports() {
+    local config_id port port_hex
+    local occupied=()
+    for config_id in "${selected_configs[@]}"; do
+        port="$((PORT_BASE + config_id))"
+        printf -v port_hex '%04X' "$port"
+        if awk -v port="$port_hex" '
+            $4 == "0A" {
+                split($2, address, ":")
+                if (address[2] == port) found = 1
+            }
+            END { exit found ? 0 : 1 }
+        ' /proc/net/tcp /proc/net/tcp6; then
+            occupied+=("$port (config $config_id)")
+        fi
+    done
+    if [ "${#occupied[@]}" -gt 0 ]; then
+        echo "Cannot start; TCP ports already in use: ${occupied[*]}" >&2
+        return 1
+    fi
 }
 
 cleanup() {
@@ -204,6 +227,8 @@ else
     echo "Available configurations: ${CONFIG_IDS[*]}"
     exit 1
 fi
+
+check_selected_ports || exit 1
 
 if [ -n "$FUZZ" ]; then
     echo "Launching ${#selected_configs[@]} fuzzing profiles (about $((${#selected_configs[@]} * 3)) OS threads)."
@@ -360,7 +385,7 @@ run_fuzzer() {
     local variant_config="$run_dir/config/variant.conf"
     local pid_file="$run_dir/lighttpd.pid"
     local config_number="$((10#$build_config))"
-    local port="$((5600 + config_number))"
+    local port="$((PORT_BASE + config_number))"
     local config_profile_dir="$profile_dir/run_$build_config"
     local artifact_dir="$directory/logs/artifacts/run_$build_config"
     local corpus_dir="${LIGHTTPD_FUZZ_CORPUS:-$directory/corpus}"
@@ -437,7 +462,7 @@ if [ "$PACKET_CAPTURE" -eq 1 ]; then
     separator=""
     for build_config in "${selected_configs[@]}"; do
         config_number="$((10#$build_config))"
-        tcpdump_filter+="${separator}port $((5600 + config_number))"
+        tcpdump_filter+="${separator}port $((PORT_BASE + config_number))"
         separator=" or "
     done
     if [ "$backend_enabled" -eq 1 ]; then

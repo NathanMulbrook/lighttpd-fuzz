@@ -40,6 +40,7 @@ BUILD_INIT=0
 BUILD_DIRECTORY=1
 REBUILD_DIRECTORY=0
 JOBS=1
+PORT_BASE=7600
 LIGHTTPD_REF="${LIGHTTPD_REF:-2ddc51389a139d2b08daf310596c951c1d53dc8d}"
 LIGHTTPD_REPOSITORY="${LIGHTTPD_REPOSITORY:-https://github.com/lighttpd/lighttpd1.4.git}"
 source_dir="$directory/lighttpd"
@@ -70,7 +71,7 @@ discover_configs() {
         fi
         config_id="${BASH_REMATCH[1]}"
         config_number="$((10#$config_id))"
-        if [ "$config_number" -gt 59935 ]; then
+        if [ "$config_number" -gt "$((65535 - PORT_BASE))" ]; then
             echo "Configuration $config_id cannot use a TCP port above 65535."
             return 1
         fi
@@ -238,7 +239,7 @@ stage_runtime() {
     local build_config="$1"
     local run_dir="$directory/run/run_$build_config"
     local config_number="$((10#$build_config))"
-    local port="$((5600 + config_number))"
+    local port="$((PORT_BASE + config_number))"
 
     if [ ! -x "$run_dir/sbin/lighttpd" ]; then
         echo "Missing installed lighttpd for config $build_config"
