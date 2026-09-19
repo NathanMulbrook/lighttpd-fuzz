@@ -124,6 +124,15 @@ which the process cannot reliably continue remain terminal; libFuzzer then
 preserves the current unit under `logs/artifacts/run_N`. Other profile
 processes continue independently.
 
+The harness records an enabled test-case log entry, including the process ID
+and sequence number, before sending that input. After transmission it keeps
+the libFuzzer callback active for 20 ms, closes the client socket, and waits
+another 2 ms for EOF cleanup. This mirrors the 389 DS harness's iteration
+fence and prevents normal late event-loop coverage or diagnostics from being
+credited to the following input. It is a bounded timing fence; unusually slow
+asynchronous work still requires replay of the saved input before a finding is
+assigned.
+
 As in the 389 DS scripts, `run.sh --fuzz --config=1` disables the embedded
 fuzzer and starts only the instrumented server. This is useful for replay:
 

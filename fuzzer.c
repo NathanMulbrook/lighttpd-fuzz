@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #define DEFAULT_PORT 5601
@@ -18,6 +19,8 @@
 #define FRAGMENT_DELAY_US 100
 #define RESPONSE_TIMEOUT_MS 250
 #define FINAL_RESPONSE_TIMEOUT_MS 25
+#define ITERATION_SETTLE_DELAY_US 20000
+#define POST_CLOSE_SETTLE_DELAY_US 2000
 
 extern int LLVMFuzzerRunDriver(
     int *argc, char ***argv,
@@ -26,6 +29,7 @@ extern int LLVMFuzzerRunDriver(
 static int target_port = DEFAULT_PORT;
 static int hap_proxy_protocol;
 static const char *test_case_log;
+static uint64_t test_case_sequence;
 static pthread_once_t fuzzer_once = PTHREAD_ONCE_INIT;
 
 static int configuredPort(void) {
@@ -48,6 +52,15 @@ static int configuredPort(void) {
 static int configuredBoolean(const char *name) {
   const char *value = getenv(name);
   return value != NULL && *value != '\0' && strcmp(value, "0") != 0;
+}
+
+static void sleepMicroseconds(long delay_us) {
+  struct timespec delay = {
+      .tv_sec = delay_us / 1000000,
+      .tv_nsec = (delay_us % 1000000) * 1000,
+  };
+  while (nanosleep(&delay, &delay) == -1 && errno == EINTR) {
+  }
 }
 
 static int connectTarget(void) {
@@ -178,7 +191,9 @@ static void logInput(const uint8_t *data, size_t size) {
 
   struct timeval now;
   gettimeofday(&now, NULL);
-  fprintf(output, "%010ld:%06ld - ", (long)now.tv_sec, (long)now.tv_usec);
+  fprintf(output, "%010ld:%06ld pid=%ld seq=%llu - ", (long)now.tv_sec,
+          (long)now.tv_usec, (long)getpid(),
+          (unsigned long long)++test_case_sequence);
   for (size_t i = 0; i < size; ++i) {
     fprintf(output, "0x%02x, ", data[i]);
   }
@@ -204,6 +219,9 @@ static int fuzzServer(const uint8_t *data, size_t size) {
     return 0;
   }
 
+  /* Record the active input before target code can emit a diagnostic. */
+  logInput(data, size);
+
   int send_result;
   if (flags & FUZZ_MULTIPACKET_FLAG) {
     send_result = sendMultipacketData(
@@ -217,9 +235,17 @@ static int fuzzServer(const uint8_t *data, size_t size) {
 
   if (send_result == 0) {
     (void)readSomeResponse(sockfd, FINAL_RESPONSE_TIMEOUT_MS);
-    logInput(data, size);
   }
+
+  /*
+   * lighttpd processes this socket on its event-loop thread.  Keep the
+   * libFuzzer callback active while request work settles, then give EOF and
+   * connection cleanup a separate grace period.  Without this fence, a fast
+   * first response byte can let late coverage leak into the next input.
+   */
+  sleepMicroseconds(ITERATION_SETTLE_DELAY_US);
   close(sockfd);
+  sleepMicroseconds(POST_CLOSE_SETTLE_DELAY_US);
   return 0;
 }
 
