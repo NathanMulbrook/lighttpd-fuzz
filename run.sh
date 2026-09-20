@@ -107,6 +107,27 @@ check_selected_ports() {
     fi
 }
 
+check_backend_ports() {
+    local port port_hex
+    local occupied=()
+    for port in 6501 6502 6503; do
+        printf -v port_hex '%04X' "$port"
+        if awk -v port="$port_hex" '
+            $4 == "0A" {
+                split($2, address, ":")
+                if (address[2] == port) found = 1
+            }
+            END { exit found ? 0 : 1 }
+        ' /proc/net/tcp /proc/net/tcp6; then
+            occupied+=("$port")
+        fi
+    done
+    if [ "${#occupied[@]}" -gt 0 ]; then
+        echo "Cannot start backend; TCP ports already in use: ${occupied[*]}" >&2
+        return 1
+    fi
+}
+
 cleanup() {
     local exit_status="$?"
     trap - EXIT
@@ -121,6 +142,11 @@ cleanup() {
         fi
     done
     for pid in "${capture_pids[@]}"; do
+        kill -TERM -- "-$pid" 2>/dev/null || true
+    done
+    # Stop the fixture promptly.  Waiting for every fuzzer first can leave it
+    # behind if an external supervisor enforces a short shutdown deadline.
+    for pid in "${backend_pids[@]}"; do
         kill -TERM -- "-$pid" 2>/dev/null || true
     done
 
@@ -449,6 +475,7 @@ run_fuzzer() {
 
 backend_enabled=0
 if selected_configs_require_backend; then
+    check_backend_ports || exit 1
     start_backend_responder || exit 1
     backend_enabled=1
 fi
