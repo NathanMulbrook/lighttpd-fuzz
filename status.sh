@@ -59,33 +59,60 @@ server_only=0
 stopped=0
 lines=()
 
+# Build one process map so a missing PID file cannot hide a live profile.
+# This also detects campaigns started by older run.sh versions.
+declare -A live_pids_by_exe=()
+for proc_exe in /proc/[0-9]*/exe; do
+    actual_exe="$(readlink "$proc_exe" 2>/dev/null || true)"
+    actual_exe="${actual_exe% (deleted)}"
+    [ -n "$actual_exe" ] || continue
+    proc_pid="${proc_exe#/proc/}"
+    proc_pid="${proc_pid%/exe}"
+    live_pids_by_exe["$actual_exe"]+=" $proc_pid"
+done
+
 for config_id in "${config_ids[@]}"; do
     run_dir="$directory/run/run_$config_id"
-    pid_file="$run_dir/lighttpd.pid"
+    expected_exe="$(realpath -m "$run_dir/sbin/lighttpd")"
     state="stopped"
     detail=""
+    pid=""
 
-    if [ -f "$pid_file" ]; then
-        read -r pid < "$pid_file"
+    for pid_file in "$run_dir/run.pid" "$run_dir/lighttpd.pid"; do
+        [ -f "$pid_file" ] || continue
+        read -r candidate_pid < "$pid_file"
+        pid="$candidate_pid"
         case "$pid" in
         '' | *[!0-9]*) pid="" ;;
         esac
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-            expected_exe="$(realpath -m "$run_dir/sbin/lighttpd")"
             actual_exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
             actual_exe="${actual_exe% (deleted)}"
-            if [ "$actual_exe" = "$expected_exe" ]; then
-                if tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -Fqx -- '-F'; then
-                    state="fuzzing"
-                    fuzzing="$((fuzzing + 1))"
-                else
-                    state="server-only"
-                    server_only="$((server_only + 1))"
-                fi
-                cpu="$(ps -p "$pid" -o %cpu= | awk 'NR == 1 { print $1 }')"
-                detail="pid=$pid cpu=${cpu:-?}%"
-            fi
+            [ "$actual_exe" = "$expected_exe" ] && break
         fi
+        pid=""
+    done
+
+    if [ -z "$pid" ]; then
+        for candidate_pid in ${live_pids_by_exe[$expected_exe]:-}; do
+            if tr '\0' '\n' < "/proc/$candidate_pid/cmdline" 2>/dev/null \
+                | grep -Fqx -- "$run_dir/config/lighttpd.conf"; then
+                pid="$candidate_pid"
+                break
+            fi
+        done
+    fi
+
+    if [ -n "$pid" ]; then
+        if tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -Fqx -- '-F'; then
+            state="fuzzing"
+            fuzzing="$((fuzzing + 1))"
+        else
+            state="server-only"
+            server_only="$((server_only + 1))"
+        fi
+        cpu="$(ps -p "$pid" -o %cpu= | awk 'NR == 1 { print $1 }')"
+        detail="pid=$pid cpu=${cpu:-?}%"
     fi
 
     if [ "$state" = "stopped" ]; then

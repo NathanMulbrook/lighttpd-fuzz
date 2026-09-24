@@ -13,7 +13,7 @@ leak-*
 lighttpd/
 lighttpd-patches/
 lighttpd-patches-private/
-toolchain/llvm-*/
+toolchain/llvm-*
 toolchain/work/
 testTools/
 covbridge-source.zip

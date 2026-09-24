@@ -181,44 +181,74 @@ config_build() {
     )
 }
 
-active_instance_pid() {
+pid_from_files() {
     local build_config="$1"
     local run_dir="$directory/run/run_$build_config"
-    local pid_file="$run_dir/lighttpd.pid"
     local binary="$run_dir/sbin/lighttpd"
-    [ -f "$pid_file" ] || return 1
-    local pid actual_exe expected_exe
-    pid="$(sed -n '1p' "$pid_file")"
-    case "$pid" in
-    '' | *[!0-9]*)
-        rm -f "$pid_file"
-        return 1
-        ;;
-    esac
-    if ! kill -0 "$pid" 2>/dev/null; then
-        rm -f "$pid_file"
-        return 1
-    fi
-    actual_exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
-    actual_exe="${actual_exe% (deleted)}"
+    local expected_exe
     expected_exe="$(realpath -m "$binary")"
-    if [ "$actual_exe" != "$expected_exe" ]; then
-        echo "Ignoring stale PID file for config $build_config: $pid"
-        rm -f "$pid_file"
-        return 1
-    fi
+    local pid_file pid actual_exe
 
-    printf '%s\n' "$pid"
+    for pid_file in "$run_dir/run.pid" "$run_dir/lighttpd.pid"; do
+        [ -f "$pid_file" ] || continue
+        pid="$(sed -n '1p' "$pid_file")"
+        case "$pid" in
+        '' | *[!0-9]*)
+            rm -f "$pid_file"
+            continue
+            ;;
+        esac
+        if kill -0 "$pid" 2>/dev/null; then
+            actual_exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+            actual_exe="${actual_exe% (deleted)}"
+            if [ "$actual_exe" = "$expected_exe" ]; then
+                printf '%s\n' "$pid"
+                return 0
+            fi
+        fi
+        echo "Ignoring stale PID file for config $build_config: $pid" >&2
+        rm -f "$pid_file"
+    done
+
+    return 1
 }
 
 refuse_active_instances() {
-    local build_config pid
+    local build_config pid expected_exe actual_exe proc_exe
     local active=()
     local configs=("$@")
+    local -A active_pids=() unresolved_exes=() found_pids=()
+
     for build_config in "${configs[@]}"; do
-        if pid="$(active_instance_pid "$build_config")"; then
-            active+=("$build_config:$pid")
+        if pid="$(pid_from_files "$build_config")"; then
+            active_pids["$build_config"]="$pid"
+        else
+            expected_exe="$(realpath -m "$directory/run/run_$build_config/sbin/lighttpd")"
+            unresolved_exes["$expected_exe"]=1
         fi
+    done
+
+    # A deleted PID file must not allow staging over a live binary.  Check
+    # unmatched profiles in one /proc pass, rather than one pass per profile.
+    if [ "${#unresolved_exes[@]}" -gt 0 ]; then
+        for proc_exe in /proc/[0-9]*/exe; do
+            actual_exe="$(readlink "$proc_exe" 2>/dev/null || true)"
+            actual_exe="${actual_exe% (deleted)}"
+            [ -n "$actual_exe" ] || continue
+            [ -n "${unresolved_exes[$actual_exe]-}" ] || continue
+            [ -z "${found_pids[$actual_exe]-}" ] || continue
+            pid="${proc_exe#/proc/}"
+            found_pids["$actual_exe"]="${pid%/exe}"
+        done
+    fi
+
+    for build_config in "${configs[@]}"; do
+        pid="${active_pids[$build_config]-}"
+        if [ -z "$pid" ]; then
+            expected_exe="$(realpath -m "$directory/run/run_$build_config/sbin/lighttpd")"
+            pid="${found_pids[$expected_exe]-}"
+        fi
+        [ -z "$pid" ] || active+=("$build_config:$pid")
     done
     [ "${#active[@]}" -eq 0 ] && return 0
 

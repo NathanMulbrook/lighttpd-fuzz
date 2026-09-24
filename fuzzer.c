@@ -311,8 +311,8 @@ static void *runFuzzer(void *unused) {
       (char *)"lighttpd-fuzzer", (char *)corpus,
       (char *)"-max_len=65000", (char *)"-detect_leaks=0",
       (char *)"-len_control=20", (char *)"-rss_limit_mb=4096",
-      (char *)"-verbosity=1", artifact_arg, NULL};
-  int argument_count = 8;
+      (char *)"-verbosity=1", (char *)"-handle_term=1", artifact_arg, NULL};
+  int argument_count = 9;
   char **argument_pointer = arguments;
 
   fprintf(stderr, "Starting embedded fuzzer for port %d\n", target_port);

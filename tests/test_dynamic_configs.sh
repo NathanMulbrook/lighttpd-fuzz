@@ -98,6 +98,39 @@ fi
 grep -Fq "Refusing to build or stage active lighttpd profiles: 1:$live_pid" \
     "$test_dir/active-build.out"
 kill -0 "$live_pid"
+
+# Deleting both PID records must not let a build replace a live staged binary.
+rm -f "$test_dir/run/run_1/run.pid" "$test_dir/run/run_1/lighttpd.pid"
+if PATH="$test_dir/bin:$PATH" "$test_dir/build.sh" --config=1 --no-patch \
+    >"$test_dir/missing-pid-build.out" 2>&1; then
+    echo "A build ignored a live profile after its PID file was deleted." >&2
+    exit 1
+fi
+grep -Fq "Refusing to build or stage active lighttpd profiles: 1:$live_pid" \
+    "$test_dir/missing-pid-build.out"
+kill -0 "$live_pid"
+
+# An all-profile build must inspect each process only once while still finding
+# the live profile whose PID files are gone.
+cat >"$test_dir/bin/readlink" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = "/proc/$SCAN_SENTINEL_PID/exe" ]; then
+    printf 'seen\n' >>"$SCAN_RECORD_FILE"
+fi
+exec /usr/bin/readlink "$@"
+EOF
+chmod +x "$test_dir/bin/readlink"
+if SCAN_SENTINEL_PID="$$" SCAN_RECORD_FILE="$test_dir/proc-scan.out" \
+    PATH="$test_dir/bin:$PATH" "$test_dir/build.sh" --all --no-patch \
+    >"$test_dir/missing-pid-all-build.out" 2>&1; then
+    echo "An all-profile build ignored a live profile after its PID files were deleted." >&2
+    exit 1
+fi
+grep -Fq "Refusing to build or stage active lighttpd profiles: 1:$live_pid" \
+    "$test_dir/missing-pid-all-build.out"
+[ "$(wc -l <"$test_dir/proc-scan.out")" -eq 1 ]
+rm "$test_dir/bin/readlink"
+
 kill -KILL "$live_pid"
 wait "$live_pid" 2>/dev/null || true
 live_pid=""
@@ -140,11 +173,37 @@ EOF
 cat >"$test_dir/mock-lighttpd" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$MOCK_SERVERS_FILE"
+config=""
+for arg in "$@"; do
+    case "$arg" in
+    */run_[0-9]*/config/lighttpd.conf) config="$arg" ;;
+    esac
+done
+if [ -n "$config" ]; then
+    run_dir="${config%/config/lighttpd.conf}"
+    for _ in $(seq 1 100); do
+        [ -f "$run_dir/run.pid" ] && break
+        sleep 0.01
+    done
+    printf '%s:%s:%s\n' "${run_dir##*_}" "$$" "$(cat "$run_dir/run.pid")" \
+        >>"$MOCK_PID_RECORD_FILE"
+    if [ "${run_dir##*_}" != 1 ]; then
+        sanitizer_prefix="${ASAN_OPTIONS#*log_path=}"
+        sanitizer_prefix="${sanitizer_prefix%%:*}"
+        printf 'simulated shutdown sanitizer record\n' \
+            >"$sanitizer_prefix.$$"
+    fi
+fi
 if [[ "$*" == *'/run_1/config/lighttpd.conf'* ]]; then
     starts="$(grep -Fc '/run_1/config/lighttpd.conf' "$MOCK_SERVERS_FILE")"
-    [ "$starts" -eq 1 ] && exit 42
+    if [ "$starts" -eq 1 ]; then
+        root_dir="${run_dir%/run/run_1}"
+        printf 'current campaign sanitizer record\n' \
+            >"$root_dir/logs/asan1.log.$$"
+        exit 42
+    fi
 fi
-trap 'exit 0' TERM
+trap 'if [ -n "${MOCK_STOP_SIGNAL_FILE:-}" ]; then printf "%s\n" "${run_dir##*_}" >>"$MOCK_STOP_SIGNAL_FILE"; fi; exit 72' TERM
 while sleep 1; do :; done
 EOF
 chmod +x "$test_dir/bin/tcpdump" "$test_dir/mock-lighttpd"
@@ -155,23 +214,67 @@ for config_id in $(seq 1 12); do
     touch "$run_dir/config/lighttpd.conf"
     touch "$run_dir/config/variant.conf"
 done
+for config_id in $(seq 1 6); do
+    printf '\n# -handle_term=1\n' >>"$test_dir/run/run_$config_id/sbin/lighttpd"
+done
+
+# A new campaign archives sanitizer records left by the preceding campaign.
+# Supervisor restarts within the campaign must continue writing beside the
+# current records instead of moving them away from asanProcess.sh.
+mkdir -p "$test_dir/logs"
+printf 'old sanitizer record\n' >"$test_dir/logs/asan1.log.111"
 
 set +e
 PATH="$test_dir/bin:$PATH" \
     MOCK_FILTER_FILE="$test_dir/filter.out" \
+    MOCK_PID_RECORD_FILE="$test_dir/pids.out" \
     MOCK_SERVERS_FILE="$test_dir/servers.out" \
-    timeout 7 "$test_dir/run.sh" --fuzz --packet >"$test_dir/run.out" 2>&1
+    MOCK_STOP_SIGNAL_FILE="$test_dir/stop-signals.out" \
+    timeout 7 "$test_dir/run.sh" --packet >"$test_dir/run.out" 2>&1
 run_status="$?"
 set -e
 [ "$run_status" -eq 124 ]
 expected_filter='tcp and (port 7601 or port 7602 or port 7603 or port 7604 or port 7605 or port 7606 or port 7607 or port 7608 or port 7609 or port 7610 or port 7611 or port 7612)'
 grep -Fqx "$expected_filter" "$test_dir/filter.out"
 [ "$(wc -l <"$test_dir/servers.out")" -eq 13 ]
+awk -F: '$2 != $3 { exit 1 }' "$test_dir/pids.out"
+for config_id in $(seq 1 12); do
+    grep -q "^$config_id:" "$test_dir/pids.out"
+done
+for config_id in $(seq 1 6); do
+    grep -Fqx "$config_id" "$test_dir/stop-signals.out"
+done
+for config_id in $(seq 7 12); do
+    if grep -Fqx "$config_id" "$test_dir/stop-signals.out"; then
+        echo "Legacy config $config_id received SIGTERM instead of SIGKILL." >&2
+        exit 1
+    fi
+done
+for config_id in $(seq 2 6); do
+    sidecar="$(find "$test_dir/logs" -maxdepth 1 -type f \
+        -name "asan$config_id.log.*.supervisor-stop")"
+    [ -n "$sidecar" ]
+    grep -Fqx 'status=72' "$sidecar"
+done
+for config_id in $(seq 7 12); do
+    sidecar="$(find "$test_dir/logs" -maxdepth 1 -type f \
+        -name "asan$config_id.log.*.supervisor-stop")"
+    [ -n "$sidecar" ]
+    grep -Fqx 'status=137' "$sidecar"
+done
 grep -Eq 'Config 1 child [0-9]+ exited with status 42 after [0-9]+s; restarting \(rapid attempt 1/5\)\.' "$test_dir/run.out"
 grep -Eq 'Config 1 restarted as child [0-9]+\.' "$test_dir/run.out"
 grep -Fq -- '--- supervisor restarting config 1 at ' "$test_dir/logs/error1"
+[ ! -e "$test_dir/logs/asan1.log.111" ]
+[ "$(find "$test_dir/logs/old/asan" -type f -name 'asan1.log.111' | wc -l)" -eq 1 ]
+grep -Fqx 'old sanitizer record' \
+    "$(find "$test_dir/logs/old/asan" -type f -name 'asan1.log.111')"
+[ "$(find "$test_dir/logs" -maxdepth 1 -type f -name 'asan1.log.*' | wc -l)" -eq 1 ]
+grep -Fqx 'current campaign sanitizer record' \
+    "$(find "$test_dir/logs" -maxdepth 1 -type f -name 'asan1.log.*')"
 for config_id in $(seq 1 12); do
     grep -Fq "run_$config_id/config/lighttpd.conf" "$test_dir/servers.out"
+    [ "$(grep -c '^--- supervisor launch ' "$test_dir/logs/error$config_id")" -ge 2 ]
     [ "$(find "$test_dir/logs/profiles" -mindepth 2 -maxdepth 2 -type d -name "run_$config_id" | wc -l)" -eq 1 ]
 done
 
@@ -201,6 +304,7 @@ set +e
 PATH="$test_dir/bin:$PATH" \
     MOCK_BACKEND_ARGS_FILE="$test_dir/backend-args.out" \
     MOCK_BACKEND_PID_FILE="$test_dir/backend-pid.out" \
+    MOCK_PID_RECORD_FILE="$test_dir/pids.out" \
     MOCK_SERVERS_FILE="$test_dir/servers.out" \
     timeout 7 "$test_dir/run.sh" --fuzz --config=2 --LOG_OUTPUT \
     >"$test_dir/backend-run.out" 2>&1
@@ -218,5 +322,38 @@ if kill -0 "$backend_pid" 2>/dev/null; then
     echo "Backend responder $backend_pid survived campaign cleanup." >&2
     exit 1
 fi
+
+# The stop command locates this checkout's supervisor and lets its normal
+# cleanup stop the child instead of signalling a profile that would restart.
+: >"$test_dir/run/run_2/config/variant.conf"
+PATH="$test_dir/bin:$PATH" \
+    MOCK_PID_RECORD_FILE="$test_dir/pids.out" \
+    MOCK_SERVERS_FILE="$test_dir/servers.out" \
+    "$test_dir/run.sh" --fuzz --config=2 --LOG_OUTPUT \
+    >"$test_dir/stop-run.out" 2>&1 &
+live_pid="$!"
+for _ in $(seq 1 100); do
+    [ -f "$test_dir/run/run_2/run.pid" ] && break
+    sleep 0.05
+done
+[ -f "$test_dir/run/run_2/run.pid" ]
+stop_child_pid="$(cat "$test_dir/run/run_2/run.pid")"
+kill -0 "$stop_child_pid"
+"$test_dir/run.sh" --stop >"$test_dir/stop.out"
+grep -Eq '^Stopping 1 campaign supervisor\(s\): [0-9]+$' "$test_dir/stop.out"
+grep -Fqx 'Stopped 1 campaign supervisor(s).' "$test_dir/stop.out"
+set +e
+wait "$live_pid"
+stop_status="$?"
+set -e
+[ "$stop_status" -eq 143 ]
+live_pid=""
+if kill -0 "$stop_child_pid" 2>/dev/null; then
+    echo "Fuzzer child $stop_child_pid survived run.sh --stop." >&2
+    exit 1
+fi
+[ ! -e "$test_dir/run/run_2/run.pid" ]
+"$test_dir/run.sh" --stop >"$test_dir/already-stopped.out"
+grep -Fqx 'No running campaigns found.' "$test_dir/already-stopped.out"
 
 echo "Dynamic configuration discovery and scheduling tests passed."

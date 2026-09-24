@@ -100,8 +100,13 @@ static void *runSynchronizationServer(void *argument) {
 int LLVMFuzzerRunDriver(
     int *argc, char ***argv,
     int (*user_callback)(const uint8_t *data, size_t size)) {
-  (void)argc;
-  (void)argv;
+  int handles_term = 0;
+  for (int i = 0; i < *argc; ++i) {
+    if (strcmp((*argv)[i], "-handle_term=1") == 0) {
+      handles_term = 1;
+    }
+  }
+  assert(handles_term);
 
   static const uint8_t input[] = {
       0x00, 'G', 'E', 'T', ' ', '/', ' ', 'H', 'T', 'T', 'P', '/', '1',

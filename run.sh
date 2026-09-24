@@ -2,26 +2,18 @@
 set -u
 
 directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$directory/toolchain/use-llvm.sh" || exit
-if ! command -v setsid >/dev/null; then
-    echo "setsid is required to isolate fuzzing children from terminal signals."
-    exit 1
-fi
-if ! command -v flock >/dev/null; then
-    echo "flock is required to keep running profiles separate from builds."
-    exit 1
-fi
 
 FUZZ="-F"
 CONFIG="all"
+STOP=0
 LOG_OUTPUT=1
 PACKET_CAPTURE=0
 TEST_CASE_LOG=0
 PORT_BASE=7600
-profile_dir="$directory/logs/profiles/$(date -u +%Y%m%dT%H%M%SZ)-$$"
-campaign_id="${profile_dir##*/}"
-error_archive_dir="$directory/logs/old/error/$campaign_id"
-mkdir -p "$profile_dir" "$directory/logs/old/build" "$directory/logs/old/error" "$directory/logs/old/asan" "$directory/logs/old/testCases" "$directory/logs/artifacts"
+profile_dir=""
+campaign_id=""
+error_archive_dir=""
+sanitizer_archive_dir=""
 
 fuzzer_pids=()
 capture_pids=()
@@ -30,6 +22,10 @@ backend_ready_file=""
 declare -A fuzzer_configs=()
 declare -A server_pid_files=()
 declare -A fuzzer_started_at=()
+declare -A fuzzer_stop_signals=()
+declare -A fuzzer_sanitizer_prefixes=()
+declare -A supervisor_stop_expected=()
+declare -A launch_counts=()
 declare -A rapid_restart_counts=()
 declare -A config_lock_fds=()
 CONFIG_IDS=()
@@ -85,6 +81,70 @@ valid_config() {
     return 1
 }
 
+is_campaign_supervisor() {
+    local pid="$1" process_exe process_cwd arg
+    [ "$pid" != "$$" ] || return 1
+    process_exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+    [ "${process_exe##*/}" = bash ] || return 1
+    process_cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
+
+    while IFS= read -r arg; do
+        if [ "$arg" = "$directory/run.sh" ] \
+            || { [ "$process_cwd" = "$directory" ] \
+                && { [ "$arg" = "./run.sh" ] || [ "$arg" = run.sh ]; }; }; then
+            return 0
+        fi
+    done < <(tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null)
+    return 1
+}
+
+process_is_running() {
+    local pid="$1"
+    kill -0 "$pid" 2>/dev/null || return 1
+    ! grep -q '^State:[[:space:]]*Z' "/proc/$pid/status" 2>/dev/null
+}
+
+stop_campaigns() {
+    local proc_dir pid running
+    local supervisors=()
+
+    for proc_dir in /proc/[0-9]*; do
+        pid="${proc_dir##*/}"
+        if is_campaign_supervisor "$pid"; then
+            supervisors+=("$pid")
+        fi
+    done
+
+    if [ "${#supervisors[@]}" -eq 0 ]; then
+        echo "No running campaigns found."
+        return 0
+    fi
+
+    echo "Stopping ${#supervisors[@]} campaign supervisor(s): ${supervisors[*]}"
+    for pid in "${supervisors[@]}"; do
+        kill -TERM "$pid" 2>/dev/null || true
+    done
+
+    for _ in {1..200}; do
+        running=0
+        for pid in "${supervisors[@]}"; do
+            process_is_running "$pid" && running=1
+        done
+        [ "$running" -eq 0 ] && break
+        sleep 0.1
+    done
+
+    running=0
+    for pid in "${supervisors[@]}"; do
+        if process_is_running "$pid"; then
+            echo "Campaign supervisor $pid did not stop within 20 seconds." >&2
+            running=1
+        fi
+    done
+    [ "$running" -eq 0 ] || return 1
+    echo "Stopped ${#supervisors[@]} campaign supervisor(s)."
+}
+
 check_selected_ports() {
     local config_id port port_hex
     local occupied=()
@@ -133,10 +193,27 @@ cleanup() {
     trap - EXIT
     trap '' INT TERM
 
-    local pid running
+    local pid running signal config_id sanitizer_prefix launch_id
     for pid in "${fuzzer_pids[@]}"; do
         if [ -n "$FUZZ" ]; then
-            kill -USR2 "$pid" 2>/dev/null || true
+            signal="${fuzzer_stop_signals[$pid]:-KILL}"
+            config_id="${fuzzer_configs[$pid]:-}"
+            sanitizer_prefix="${fuzzer_sanitizer_prefixes[$pid]:-}"
+            launch_id="${sanitizer_prefix##*.log.}"
+            if [ "$LOG_OUTPUT" -eq 1 ] \
+                && [ -n "$config_id" ] \
+                && [ -n "$sanitizer_prefix" ]; then
+                printf '%s\n' "--- supervisor launch $launch_id ---" \
+                    >>"$directory/logs/error$config_id"
+            fi
+            if kill -"$signal" "$pid" 2>/dev/null; then
+                if [ "$signal" = TERM ]; then
+                    # libFuzzer's default interrupt_exitcode.
+                    supervisor_stop_expected["$pid"]=72
+                else
+                    supervisor_stop_expected["$pid"]=137
+                fi
+            fi
         else
             kill -TERM -- "-$pid" 2>/dev/null || true
         fi
@@ -180,8 +257,18 @@ cleanup() {
                 kill -KILL -- "-$pid" 2>/dev/null || true
             fi
         done
+        local wait_status expected_status sanitizer_log
         for pid in "${child_pids[@]}"; do
-            wait "$pid" 2>/dev/null || true
+            wait_status=0
+            wait "$pid" 2>/dev/null || wait_status="$?"
+            expected_status="${supervisor_stop_expected[$pid]:-}"
+            sanitizer_log="${fuzzer_sanitizer_prefixes[$pid]:-}.$pid"
+            if [ -n "$expected_status" ] \
+                && [ "$wait_status" -eq "$expected_status" ] \
+                && [ -f "$sanitizer_log" ]; then
+                printf 'status=%s\n' "$wait_status" \
+                    >"$sanitizer_log.supervisor-stop"
+            fi
         done
     fi
     for pid in "${backend_pids[@]}"; do
@@ -213,12 +300,12 @@ cleanup() {
     done
     exit "$exit_status"
 }
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 for arg in "$@"; do
     case "$arg" in
+    --stop)
+        STOP=1
+        ;;
     --fuzz | -f)
         FUZZ=""
         ;;
@@ -236,6 +323,8 @@ for arg in "$@"; do
         ;;
     --help | -h)
         echo "Usage: ./run.sh [--config=N|all] [--fuzz] [--packet] [--test-case-log] [--LOG_OUTPUT]"
+        echo "       ./run.sh --stop"
+        echo "  --stop stops all active campaigns started from this checkout."
         echo "  --fuzz disables the embedded fuzzer and runs only the server."
         echo "  --test-case-log records every executed input (slow and disk intensive)."
         exit
@@ -243,7 +332,35 @@ for arg in "$@"; do
     esac
 done
 
+if [ "$STOP" -eq 1 ]; then
+    if [ "$CONFIG" != all ] && [ "$CONFIG" != a ]; then
+        echo "--stop applies to complete campaigns and cannot be limited with --config." >&2
+        exit 1
+    fi
+    stop_campaigns
+    exit
+fi
+
+source "$directory/toolchain/use-llvm.sh" || exit
+if ! command -v setsid >/dev/null; then
+    echo "setsid is required to isolate fuzzing children from terminal signals."
+    exit 1
+fi
+if ! command -v flock >/dev/null; then
+    echo "flock is required to keep running profiles separate from builds."
+    exit 1
+fi
 discover_configs || exit 1
+
+profile_dir="$directory/logs/profiles/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+campaign_id="${profile_dir##*/}"
+error_archive_dir="$directory/logs/old/error/$campaign_id"
+sanitizer_archive_dir="$directory/logs/old/asan/$campaign_id"
+mkdir -p "$profile_dir" "$directory/logs/old/build" "$directory/logs/old/error" "$directory/logs/old/asan" "$directory/logs/old/testCases" "$directory/logs/artifacts"
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 if [ "$CONFIG" = "a" ] || [ "$CONFIG" = "all" ]; then
     selected_configs=("${CONFIG_IDS[@]}")
 elif valid_config "$CONFIG"; then
@@ -294,8 +411,9 @@ stop_previous() {
     fi
 
     local signal=TERM
-    if tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | grep -Fqx -- '-F'; then
-        signal=USR2
+    if tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | grep -Fqx -- '-F' \
+        && ! grep -aFq -- '-handle_term=1' "$binary"; then
+        signal=KILL
     fi
     kill -"$signal" "$pid" 2>/dev/null || true
     for _ in {1..100}; do
@@ -313,6 +431,18 @@ archive_previous_error_log() {
 
     mkdir -p "$error_archive_dir"
     mv "$error_log" "$error_archive_dir/error$build_config"
+}
+
+archive_previous_sanitizer_logs() {
+    local build_config="$1"
+    local sanitizer_logs=()
+    shopt -s nullglob
+    sanitizer_logs=("$directory"/logs/asan"$build_config".log.*)
+    shopt -u nullglob
+    [ "${#sanitizer_logs[@]}" -gt 0 ] || return 0
+
+    mkdir -p "$sanitizer_archive_dir"
+    mv -- "${sanitizer_logs[@]}" "$sanitizer_archive_dir/"
 }
 
 acquire_config_lock() {
@@ -409,7 +539,9 @@ run_fuzzer() {
     local binary="$run_dir/sbin/lighttpd"
     local config="$run_dir/config/lighttpd.conf"
     local variant_config="$run_dir/config/variant.conf"
-    local pid_file="$run_dir/lighttpd.pid"
+    # lighttpd owns server.pid-file and does not reliably retain it in
+    # foreground mode.  run.pid is owned solely by this supervisor.
+    local pid_file="$run_dir/run.pid"
     local config_number="$((10#$build_config))"
     local port="$((PORT_BASE + config_number))"
     local config_profile_dir="$profile_dir/run_$build_config"
@@ -426,17 +558,29 @@ run_fuzzer() {
     stop_previous "$pid_file" "$binary" "$config" || return 1
     if [ "$launch_kind" = "initial" ]; then
         archive_previous_error_log "$build_config" || return 1
-    elif [ "$LOG_OUTPUT" -eq 1 ]; then
-        printf '\n--- supervisor restarting config %s at %s ---\n' \
-            "$build_config" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            >>"$directory/logs/error$build_config"
+        archive_previous_sanitizer_logs "$build_config" || return 1
     fi
 
     local profile_file="$config_profile_dir/default-%m-%p%c.profraw"
+    local launch_number="$((${launch_counts[$build_config]:-0} + 1))"
+    launch_counts["$build_config"]="$launch_number"
+    local launch_id="$campaign_id-$launch_number"
+    local sanitizer_prefix="$directory/logs/asan$build_config.log.$launch_id"
+    if [ "$LOG_OUTPUT" -eq 1 ]; then
+        if [ "$launch_kind" = "initial" ]; then
+            : >"$directory/logs/error$build_config"
+        else
+            printf '\n--- supervisor restarting config %s at %s ---\n' \
+                "$build_config" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                >>"$directory/logs/error$build_config"
+        fi
+        printf '%s\n' "--- supervisor launch $launch_id ---" \
+            >>"$directory/logs/error$build_config"
+    fi
     # Log recoverable ASan and UBSan findings and keep fuzzing. Fatal signals
     # and sanitizer failures that cannot recover still terminate the process.
-    local asan_options="strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:symbolize=1:external_symbolizer_path=$LLVM_ROOT/bin/llvm-symbolizer:log_path=$directory/logs/asan$build_config.log:halt_on_error=0"
-    local ubsan_options="print_stacktrace=1:halt_on_error=0:log_path=$directory/logs/asan$build_config.log"
+    local asan_options="strict_string_checks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1:symbolize=1:external_symbolizer_path=$LLVM_ROOT/bin/llvm-symbolizer:log_path=$sanitizer_prefix:halt_on_error=0"
+    local ubsan_options="print_stacktrace=1:halt_on_error=0:log_path=$sanitizer_prefix"
     local command=("$binary" -D -f "$config" -m "$run_dir/lib")
     local run_environment=(
         "LIGHTTPD_FUZZ_PORT=$port"
@@ -457,20 +601,24 @@ run_fuzzer() {
 
     echo "Starting config $build_config on 127.0.0.1:$port"
     if [ "$LOG_OUTPUT" -eq 1 ]; then
-        if [ "$launch_kind" = "initial" ]; then
-            setsid env "${run_environment[@]}" "${command[@]}" >"$directory/logs/error$build_config" 2>&1 &
-        else
-            setsid env "${run_environment[@]}" "${command[@]}" >>"$directory/logs/error$build_config" 2>&1 &
-        fi
+        setsid env "${run_environment[@]}" "${command[@]}" \
+            >>"$directory/logs/error$build_config" 2>&1 &
     else
         setsid env "${run_environment[@]}" "${command[@]}" &
     fi
     local pid="$!"
+    printf '%s\n' "$pid" >"$pid_file"
     last_fuzzer_pid="$pid"
     fuzzer_pids+=("$pid")
     fuzzer_configs["$pid"]="$build_config"
     server_pid_files["$pid"]="$pid_file"
     fuzzer_started_at["$pid"]="$(date +%s)"
+    fuzzer_sanitizer_prefixes["$pid"]="$sanitizer_prefix"
+    if [ -n "$FUZZ" ] && grep -aFq -- '-handle_term=1' "$binary"; then
+        fuzzer_stop_signals["$pid"]=TERM
+    else
+        fuzzer_stop_signals["$pid"]=KILL
+    fi
 }
 
 backend_enabled=0
@@ -531,6 +679,8 @@ while sleep 5; do
             unset "fuzzer_configs[$pid]"
             unset "server_pid_files[$pid]"
             unset "fuzzer_started_at[$pid]"
+            unset "fuzzer_stop_signals[$pid]"
+            unset "fuzzer_sanitizer_prefixes[$pid]"
 
             now="$(date +%s)"
             runtime="$((now - started_at))"

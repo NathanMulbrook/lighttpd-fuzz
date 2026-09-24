@@ -65,6 +65,15 @@ After the build finishes, start all 47 fuzzing processes:
 ./run.sh
 ```
 
+Stop every active campaign started from this checkout with:
+
+```console
+./run.sh --stop
+```
+
+The command waits for normal supervisor cleanup of the fuzzing children,
+backend fixture, packet capture, and PID files.
+
 Check process state, CPU use, corpus activity, and the latest libFuzzer pulse:
 
 ```console
@@ -101,7 +110,15 @@ lighttpd, and libFuzzer output for profile N. Request records remain in
 are rotated at 100 MB.
 At the next launch, an existing `logs/errorN` is moved to
 `logs/old/error/<campaign-id>/errorN`, leaving one fresh root log per selected
-configuration.
+configuration. Existing `logs/asanN.log.<launch-id>.PID` sanitizer records are
+moved to `logs/old/asan/<campaign-id>/` at the same boundary, so root sanitizer
+logs for a selected profile belong only to that profile's newest campaign.
+
+`run.sh` records each child in `run/run_N/run.pid`; this file is owned by the
+supervisor because foreground lighttpd does not reliably retain its configured
+PID file. `status.sh` scans `/proc` before declaring a profile stopped, and
+`build.sh` does the same before replacing a staged binary. Deleting a PID file
+therefore cannot hide a live profile or let a build overwrite it.
 
 Set `LIGHTTPD_FUZZ_CORPUS=/path/to/corpus` before `./run.sh` to use a
 different shared corpus directory. Run `./normalize-corpus-flags.py /path/to/corpus`
@@ -117,14 +134,30 @@ Add `--packet` to retain timestamped 12-hour tcpdump segments when the account
 has packet-capture permission.
 
 Per-input hex logging is intentionally off in normal campaigns because it is
-expensive. Add `--test-case-log` when correlating a recoverable UBSan report
-with executed inputs. The builds use `-fsanitize-recover=all`, and `run.sh`
-sets `UBSAN_OPTIONS=halt_on_error=0`, so recoverable UBSan diagnostics are
-written to `logs/asanN.log.PID` while that profile keeps fuzzing. ASan memory
-errors, fatal signals, resource-limit failures, and other conditions from
-which the process cannot reliably continue remain terminal; libFuzzer then
-preserves the current unit under `logs/artifacts/run_N`. Other profile
-processes continue independently.
+expensive. Add `--test-case-log` when correlating a recoverable sanitizer
+report with executed inputs. The builds use `-fsanitize-recover=all`, and
+`run.sh` sets both sanitizer runtimes to continue after recoverable checks.
+Recoverable ASan and UBSan diagnostics are written to
+`logs/asanN.log.<launch-id>.PID` while that profile keeps fuzzing. Fatal
+signals, resource-limit failures, and other conditions from which the process
+cannot reliably continue terminate that profile; libFuzzer then preserves the
+current unit under `logs/artifacts/run_N`. Other profiles continue
+independently.
+
+The sanitizer aggregate labels libFuzzer/ASan exit-hook checks as `Harness
+shutdown` only when the report has an exact-launch supervisor sidecar, the
+child returned the expected supervised-stop status, and the PID matches the
+libFuzzer diagnostic. They are not counted as target AddressSanitizer
+findings. UBSan diagnostics in the same per-process file remain in the
+aggregate.
+
+The embedded driver lets libFuzzer handle `SIGTERM`, which `run.sh` uses for an
+immediate process exit. This also works while libFuzzer is loading the seed
+corpus and avoids dismantling lighttpd modules while the fuzzer thread is still
+using their coverage counters. The runner uses an immediate process stop for
+older staged binaries until they are rebuilt with this handler; specifically,
+it uses `SIGKILL` so those binaries cannot enter lighttpd teardown while the
+fuzzer thread is active.
 
 The harness records an enabled test-case log entry, including the process ID
 and sequence number, before sending that input. After transmission it keeps
