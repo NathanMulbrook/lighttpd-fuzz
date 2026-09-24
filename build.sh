@@ -36,6 +36,7 @@ fi
 
 PATCH=1
 CONFIG="all"
+APPROVED_RECURSIVE_CHILD=0
 BUILD_INIT=0
 BUILD_DIRECTORY=1
 REBUILD_DIRECTORY=0
@@ -127,6 +128,9 @@ for arg in "$@"; do
     --config=* | -c=*)
         CONFIG="${arg#*=}"
         ;;
+    --approved-recursive-child)
+        APPROVED_RECURSIVE_CHILD=1
+        ;;
     esac
 done
 
@@ -214,6 +218,8 @@ pid_from_files() {
 }
 
 refuse_active_instances() {
+    local scan_proc="$1"
+    shift
     local build_config pid expected_exe actual_exe proc_exe
     local active=()
     local configs=("$@")
@@ -230,7 +236,7 @@ refuse_active_instances() {
 
     # A deleted PID file must not allow staging over a live binary.  Check
     # unmatched profiles in one /proc pass, rather than one pass per profile.
-    if [ "${#unresolved_exes[@]}" -gt 0 ]; then
+    if [ "$scan_proc" -eq 1 ] && [ "${#unresolved_exes[@]}" -gt 0 ]; then
         for proc_exe in /proc/[0-9]*/exe; do
             actual_exe="$(readlink "$proc_exe" 2>/dev/null || true)"
             actual_exe="${actual_exe% (deleted)}"
@@ -255,6 +261,27 @@ refuse_active_instances() {
     echo "Refusing to build or stage active lighttpd profiles: ${active[*]}" >&2
     echo "Stop their run.sh supervisor first; no running process was signalled." >&2
     return 1
+}
+
+approved_all_build_parent() {
+    local parent_cwd parent_script parent_config=all arg
+    local -a parent_args=()
+    mapfile -d '' -t parent_args <"/proc/$PPID/cmdline" 2>/dev/null || return 1
+    [ "${#parent_args[@]}" -ge 2 ] || return 1
+    parent_cwd="$(readlink "/proc/$PPID/cwd" 2>/dev/null)" || return 1
+    [ -n "$parent_cwd" ] || return 1
+    parent_script="${parent_args[1]}"
+    case "$parent_script" in
+    /*) ;;
+    *) parent_script="$parent_cwd/$parent_script" ;;
+    esac
+    [ "$(realpath -m "$parent_script")" = "$(realpath -m "$0")" ] || return 1
+    for arg in "${parent_args[@]:2}"; do
+        case "$arg" in
+        --config=* | -c=*) parent_config="${arg#*=}" ;;
+        esac
+    done
+    [ "$parent_config" = all ] || [ "$parent_config" = a ]
 }
 
 render_template() {
@@ -373,9 +400,18 @@ build_software() {
 
 mkdir -p "$directory/logs"
 if [ "$CONFIG" = "a" ] || [ "$CONFIG" = "all" ]; then
-    refuse_active_instances "${CONFIG_IDS[@]}"
+    refuse_active_instances 1 "${CONFIG_IDS[@]}"
 else
-    refuse_active_instances "$CONFIG"
+    scan_proc=1
+    # The all-profile parent already checked every staged binary.  Its direct
+    # children still check PID files, and build_software takes the profile
+    # lock before changing files, closing the supervised-run startup race.
+    if [ "$APPROVED_RECURSIVE_CHILD" -eq 1 ] && \
+        [ "${BUILD_PARENT_APPROVAL:-}" = "$PPID:$CONFIG" ] && \
+        approved_all_build_parent; then
+        scan_proc=0
+    fi
+    refuse_active_instances "$scan_proc" "$CONFIG"
 fi
 
 if [ "$CONFIG" = "a" ] || [ "$CONFIG" = "all" ]; then
@@ -435,10 +471,13 @@ if [ "$CONFIG" = "a" ] || [ "$CONFIG" = "all" ]; then
 
     next_config=0
     result=0
+    parent_pid="$BASHPID"
     while [ "$next_config" -lt "${#CONFIG_IDS[@]}" ] || [ "${#build_children[@]}" -gt 0 ]; do
         while [ "$next_config" -lt "${#CONFIG_IDS[@]}" ] && [ "${#build_children[@]}" -lt "$max_config_builds" ]; do
             build_config="${CONFIG_IDS[$next_config]}"
-            setsid "$0" "--config=$build_config" "${child_args[@]}" > >(tee "$directory/logs/build$build_config.log") 2>&1 &
+            BUILD_PARENT_APPROVAL="$parent_pid:$build_config" \
+                setsid "$0" --approved-recursive-child "--config=$build_config" \
+                "${child_args[@]}" > >(tee "$directory/logs/build$build_config.log") 2>&1 &
             build_children["$!"]="$build_config"
             next_config="$((next_config + 1))"
         done

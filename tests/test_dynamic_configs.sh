@@ -110,6 +110,17 @@ grep -Fq "Refusing to build or stage active lighttpd profiles: 1:$live_pid" \
     "$test_dir/missing-pid-build.out"
 kill -0 "$live_pid"
 
+# A caller cannot claim parent approval merely by supplying the internal flag
+# and its own parent PID; direct builds must still find a missing-PID process.
+if BUILD_PARENT_APPROVAL="$$:1" PATH="$test_dir/bin:$PATH" \
+    "$test_dir/build.sh" --approved-recursive-child --config=1 --no-patch \
+    >"$test_dir/forged-approval-build.out" 2>&1; then
+    echo "A direct build accepted forged recursive-parent approval." >&2
+    exit 1
+fi
+grep -Fq "Refusing to build or stage active lighttpd profiles: 1:$live_pid" \
+    "$test_dir/forged-approval-build.out"
+
 # An all-profile build must inspect each process only once while still finding
 # the live profile whose PID files are gone.
 cat >"$test_dir/bin/readlink" <<'EOF'
@@ -129,7 +140,6 @@ fi
 grep -Fq "Refusing to build or stage active lighttpd profiles: 1:$live_pid" \
     "$test_dir/missing-pid-all-build.out"
 [ "$(wc -l <"$test_dir/proc-scan.out")" -eq 1 ]
-rm "$test_dir/bin/readlink"
 
 kill -KILL "$live_pid"
 wait "$live_pid" 2>/dev/null || true
@@ -151,11 +161,16 @@ grep -Fq 'Configuration 1 is owned by another build or run.sh supervisor' \
 exec {profile_lock_fd}>&-
 rm -rf "$test_dir/run"
 
-if PATH="$test_dir/bin:$PATH" "$test_dir/build.sh" --no-patch -j >"$test_dir/scheduler.out" 2>&1; then
+: >"$test_dir/proc-scan.out"
+if SCAN_SENTINEL_PID="$$" SCAN_RECORD_FILE="$test_dir/proc-scan.out" \
+    PATH="$test_dir/bin:$PATH" "$test_dir/build.sh" --no-patch -j \
+    >"$test_dir/scheduler.out" 2>&1; then
     echo "The deliberately failed mock build unexpectedly succeeded." >&2
     exit 1
 fi
 grep -q 'Building up to 7 configurations concurrently (10 make jobs each; 78 cores detected).' "$test_dir/scheduler.out"
+[ "$(wc -l <"$test_dir/proc-scan.out")" -eq 1 ]
+rm "$test_dir/bin/readlink"
 
 # Leading-zero job counts are decimal inputs rather than invalid octal syntax.
 if PATH="$test_dir/bin:$PATH" "$test_dir/build.sh" --no-patch -j08 >"$test_dir/decimal-jobs.out" 2>&1; then
